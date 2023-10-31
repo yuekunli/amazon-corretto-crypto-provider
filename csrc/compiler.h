@@ -73,6 +73,21 @@
 #define likely(x)   __builtin_expect(!!(x), true)
 #define unlikely(x) __builtin_expect(!!(x), false)
 
+/**
+ * LiYK: If there is an if clause like this:
+ *     if (likely(...)) {
+ * 
+ *     }
+ * just treat it as if "likely" isn't there at all, like this:
+ *     if (...) {
+ * 
+ *     }
+ * The same applies to "unlikely", just pretend it's there.
+ * These two GCC built-in functions help arrange the location of assembly instructions
+ * so that the CPU can fetch the more likely next instruction faster.
+ *     
+*/
+
 #ifndef SIZE_MAX
 #ifdef __SIZE_MAX__
 #define SIZE_MAX __SIZE_MAX__

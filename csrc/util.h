@@ -74,7 +74,7 @@ public:
     virtual void zeroize() { secureZero(buf, sizeof(buf)); }
 };
 
-#if __BYTE_ORDER == __LITTLE_ENDIAN
+#if __BYTE_ORDER == __LITTLE_ENDIAN   //LiYK: __BYTE_ORDER__ is GCC common predefined macros, what about __BYTE_ORDER?
 #if defined(__x86_64__)
 // We need to continue supporting some old x86_64 build-chains, so we use a hand-rolled version of bswap64
 static inline uint64_t swapEndian(uint64_t val)

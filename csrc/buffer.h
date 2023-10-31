@@ -21,6 +21,33 @@ jbyteArray vecToArray(raii_env& env, const std::vector<uint8_t, SecureAlloc<uint
  * methods - note that these make JNI calls, so they cannot be used when a borrow is
  * active.
  */
+
+/**
+ * LiYK: This class defines two ways to create such a java_buffer object, namely from_array and from_direct
+ * There isn't a decisive reason why there are only two ways. This just artificially dictates the creator of
+ * an object of this class to have either one of the two, because array and direct buffer are the most common
+ * ways to hold consecutive data in Java.
+*/
+
+/**
+ * LiYK: The idea is to note down only meta data in java_buffer, if I want to access the data, I need to create a borrow.
+ * The most important thing needed to be done when creating a borrow is to identify the pointer that points to the start
+ * of the native array. If the java_buffer object is created out of a Java array type object, I only note down the jbyteArray
+ * variable (remember that when Java passes a byte[] to JNI, JNI gets a jbyteArray which is essentially a pointer to an object).
+ * When creating a borrow out of such java_buffer, I need to use GetPrimitiveArrayCritical to get the pointer to the native array.
+ * But when creating a java_buffer out of a Java direct buffer, I guess because of some uniqueness of direct buffer, we just
+ * call GetDirectBufferAddress and get the pointer to the native array already. The m_pBuffer in jni_borrow is supposed to be
+ * the pointer to the native array. Note that when the original source is a direct buffer, m_pBuffer is simply assigned with
+ * m_direct_buffer from java_buffer.
+ * To summarize:
+ *     when original source is a Java byte array, I note down jbyteArray when creating java_buffer, and get the real
+ *     pointer later when I create jni_borrow. 
+ * 
+ *     when original source is a Java direct buffer, I already get the real pointer when creating java_buffer (because it's easy to do so?).
+ *     the job becomes easier when later creating jni_borrow
+ * 
+*/
+
 class java_buffer {
 private:
     jbyteArray m_array;
@@ -40,6 +67,7 @@ public:
     }
 
     bool operator!() const { return !(m_array || m_direct_buffer); }
+    // LiYK: If I have a valid array or buffer, "!()" evaluates to false, "!!()" evaluates to true.
 
     java_buffer subrange(size_t offset, size_t len) const
     {
@@ -226,6 +254,9 @@ public:
  */
 class jni_borrow {
 private:
+
+    // LiYK: I don't quite understand the rationale behind keeping track of the chain of borrows.
+
     // The borrow that was opened before us, if any
     jni_borrow* m_prior_borrow;
     // The borrow that was opened after us, if any
@@ -313,7 +344,7 @@ public:
     // (const) reference.
     jni_borrow& operator=(const jni_borrow& other)
     {
-        move(const_cast<jni_borrow&>(other));
+        move(const_cast<jni_borrow&>(other)); // LiYK: const_cast converts a const reference to a non-const reference, "cast" means "throw away"
         return *this;
     }
 
@@ -364,7 +395,7 @@ public:
             return;
         }
 
-        if (unlikely(m_context->m_last_buffer_lock != this)) {
+        if (unlikely(m_context->m_last_buffer_lock != this)) { 
             bad_release();
         }
         assert(!m_next_borrow);
@@ -383,7 +414,7 @@ public:
 
     uint8_t* data() { return (uint8_t*)m_pData; }
 
-    operator uint8_t*() { return data(); }
+    operator uint8_t*() { return data(); }  // LiYK: conversion operator that converts an object to a pointer to uint8_t
     operator const uint8_t*() const { return data(); }
 
     uint8_t* check_range(size_t off, size_t len)
