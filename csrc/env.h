@@ -13,6 +13,7 @@
 #include <sstream>
 #include <stdint.h>
 #include <vector>
+#include <string>
 
 #ifdef HAVE_IS_TRIVIALLY_COPYABLE
 #include <type_traits>
@@ -167,14 +168,15 @@ public:
     /**
      * If a java exception is pending, throws a corresponding java_ex.
      */
-    void rethrow_java_exception() const __attribute__((always_inline))
+    //void rethrow_java_exception() const __attribute__((always_inline))
+    FORCE_INLINE1 void rethrow_java_exception() const FORCE_INLINE2
     {
         if (unlikely(const_cast<raii_env*>(this)->get_env()->ExceptionCheck())) {
             java_ex::rethrow_java_exception(m_env);
         }
     }
 
-    bool is_locked() const __attribute__((always_inline)) { return !!m_last_buffer_lock; }
+    FORCE_INLINE1 bool is_locked() const FORCE_INLINE2 /*__attribute__((always_inline))*/ { return !!m_last_buffer_lock; }
 
     raii_env(JNIEnv* env)
         : m_env(env)
@@ -182,9 +184,9 @@ public:
     {
     }
 
-    JNIEnv* operator->() const __attribute__((always_inline)) { return get_env(); }
+    FORCE_INLINE1 JNIEnv* operator->() const FORCE_INLINE2 /*__attribute__((always_inline))*/ { return get_env(); }
 
-    JNIEnv* get_env() const __attribute__((always_inline))
+    FORCE_INLINE1 JNIEnv* get_env() const FORCE_INLINE2 //__attribute__((always_inline))
     {
         if (unlikely(is_locked())) {
             // We put the error message code out of line to ensure the fast path can be inlined

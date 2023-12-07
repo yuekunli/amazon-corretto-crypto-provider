@@ -9,10 +9,10 @@
 #include <algorithm> // for std::min
 #include <errno.h>
 #include <fcntl.h>
-#include <pthread.h>
+//#include <pthread.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <unistd.h>
+//#include <unistd.h>
 
 #include "buffer.h"
 #include "env.h"

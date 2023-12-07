@@ -6,28 +6,15 @@
 #include "config.h"
 #include <stdint.h>
 
-// __cplusplus is >= 201103L on C++11 or newer compilers.
-#if __cplusplus >= 201103L
+// __cplusplus is >= 201103L on C++11 or newer compilers. // LiYK: MSVC also defines _cplusplus, but we're certain in compiling with C++11 or higher
+
 #define HAVE_CPP11
 
 // DELETE_IMPLICIT is an alias for the '= delete' feature in C++11.
 #define DELETE_IMPLICIT = delete
 #define MOVE(x)         std::move(x)
 
-#else
 
-// Just in case our compiler doesn't support it, we'll allow it to be removed
-// for compilers that don't support it. In this case, if we attempt to use it,
-// we'll get a mysterious link error as we declare but don't define the
-// ctors/operators in question.
-
-#define DELETE_IMPLICIT
-
-// Define nullptr for ancient compilers
-#define nullptr NULL
-#define MOVE(x) (x)
-
-#endif
 
 #ifdef HAVE_ATTR_COLD
 #define COLD __attribute__((cold))
@@ -70,8 +57,18 @@
 #define STRINGIFY_INTERNAL(x) #x
 #define STRINGIFY(x)          STRINGIFY_INTERNAL(x)
 
-#define likely(x)   __builtin_expect(!!(x), true)
-#define unlikely(x) __builtin_expect(!!(x), false)
+#define likely(x)   x
+#define unlikely(x) x
+
+
+#if defined (_MSC_VER)
+#define FORCE_INLINE1 __inline
+#define FORCE_INLINE2
+#else
+#define FORCE_INLINE1
+#define FORCE_INLINE2 __attribute__((always_inline))
+#endif
+
 
 /**
  * LiYK: If there is an if clause like this:

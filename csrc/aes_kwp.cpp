@@ -16,7 +16,7 @@
 
 using namespace AmazonCorrettoCryptoProvider;
 
-JNIEXPORT int JNICALL Java_com_amazon_corretto_crypto_provider_AesKeyWrapPaddingSpi_wrapKey(JNIEnv* pEnv,
+JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_AesKeyWrapPaddingSpi_wrapKey(JNIEnv* pEnv,
     jclass,
     jbyteArray keyArray,
     jbyteArray inputArray,
@@ -55,7 +55,7 @@ JNIEXPORT int JNICALL Java_com_amazon_corretto_crypto_provider_AesKeyWrapPadding
     }
 }
 
-JNIEXPORT int JNICALL Java_com_amazon_corretto_crypto_provider_AesKeyWrapPaddingSpi_unwrapKey(JNIEnv* pEnv,
+JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_AesKeyWrapPaddingSpi_unwrapKey(JNIEnv* pEnv,
     jclass,
     jbyteArray keyArray,
     jbyteArray inputArray,

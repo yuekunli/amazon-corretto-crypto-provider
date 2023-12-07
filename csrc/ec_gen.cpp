@@ -94,7 +94,7 @@ JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EcGen_generateE
     return 0;
 }
 
-JNIEXPORT long JNICALL Java_com_amazon_corretto_crypto_provider_EcGen_generateEvpEcKeyFromSpec(
+JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EcGen_generateEvpEcKeyFromSpec(
     JNIEnv* pEnv, jclass, jbyteArray paramsDer, jboolean checkConsistency)
 {
     std::vector<uint8_t, SecureAlloc<uint8_t> > derBuf;

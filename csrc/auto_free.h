@@ -6,7 +6,7 @@
 #include "env.h"
 #include <openssl/ec.h>
 #include <openssl/evp.h>
-#include <openssl/mem.h>
+//#include <openssl/mem.h>
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
 

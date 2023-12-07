@@ -9,7 +9,7 @@
 #include <openssl/bn.h>
 #include <openssl/ec.h>
 #include <cstdlib>
-#include <pthread.h>
+
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -52,11 +52,6 @@ static inline void secureZero(void* ptr, size_t size)
         return;
     }
     memset(ptr, 0, size);
-    __asm__ __volatile__("" /* don't actually do anything */
-                         : /* no outputs */
-                         : "r"(ptr) /* make the compiler think the memset matters */
-                         : "memory" /* pretend we modify memory, so the compiler can't cache values in registers */
-    );
 }
 
 template <typename type, size_t size> class SecureBuffer {
@@ -73,6 +68,12 @@ public:
     type& operator[](size_t idx) const { return buf[idx]; }
     virtual void zeroize() { secureZero(buf, sizeof(buf)); }
 };
+
+#if defined (_MSC_VER)
+#define hostToBigEndian64(x) htonll(x)
+#define bigEndianToHost64(x) ntohll(x)
+
+#else // on non-microsoft compiler
 
 #if __BYTE_ORDER == __LITTLE_ENDIAN   //LiYK: __BYTE_ORDER__ is GCC common predefined macros, what about __BYTE_ORDER?
 #if defined(__x86_64__)
@@ -99,6 +100,8 @@ static inline uint64_t swapEndian(uint64_t val)
 #define hostToBigEndian64(x) (x)
 #define bigEndianToHost64(x) (x)
 #endif // BYTE_ORDER logic
+
+#endif // defined (_MSC_VER)
 
 static inline void* fast_xor(void* dest, const void* src, int len)
 {

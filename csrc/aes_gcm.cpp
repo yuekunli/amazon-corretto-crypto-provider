@@ -142,7 +142,7 @@ static int cryptFinish(raii_env& env, int opMode, java_buffer resultBuf, unsigne
     return outl;
 }
 
-JNIEXPORT int JNICALL Java_com_amazon_corretto_crypto_provider_AesGcmSpi_oneShotEncrypt(JNIEnv* pEnv,
+JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_AesGcmSpi_oneShotEncrypt(JNIEnv* pEnv,
     jclass,
     jlong ctxPtr,
     jlongArray ctxOut,

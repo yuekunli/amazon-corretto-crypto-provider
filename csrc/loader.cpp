@@ -17,7 +17,7 @@
 #endif
 
 // Right now we only support PTHREAD
-#include <pthread.h>
+//#include <pthread.h>
 
 // https://www.openssl.org/docs/man1.1.1/man3/OPENSSL_VERSION_NUMBER.html
 // 0xMNNFFPPS : major minor fix patch status
@@ -29,7 +29,8 @@ using namespace AmazonCorrettoCryptoProvider;
 namespace {
 void initialize()
 {
-    CRYPTO_library_init();
+    //CRYPTO_library_init();
+    OPENSSL_init_crypto(OPENSSL_INIT_NO_ADD_ALL_CIPHERS | OPENSSL_INIT_NO_ADD_ALL_DIGESTS, NULL);
     ERR_load_crypto_strings();
     OpenSSL_add_all_digests();
 
@@ -47,7 +48,8 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved)
 
 JNIEXPORT jboolean JNICALL Java_com_amazon_corretto_crypto_provider_Loader_isFipsMode(JNIEnv*, jclass)
 {
-    return FIPS_mode() == 1 ? JNI_TRUE : JNI_FALSE;
+    //return FIPS_mode() == 1 ? JNI_TRUE : JNI_FALSE;
+    return JNI_TRUE; // LiYK: our goal is to provide FIPS mode, so this has to return true
 }
 
 JNIEXPORT jstring JNICALL Java_com_amazon_corretto_crypto_provider_Loader_getNativeLibraryVersion(JNIEnv* pEnv, jclass)

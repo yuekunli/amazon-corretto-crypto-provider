@@ -135,7 +135,8 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_EcUtils_curveNam
                 throw_openssl("Unable to get generator coordinates");
             }
             m = EC_GROUP_get_degree(group);
-            env->SetIntArrayRegion(mArr, 0, 1, &m);
+            long adaptor = m;
+            env->SetIntArrayRegion(mArr, 0, 1, &adaptor);
             env.rethrow_java_exception();
             break;
         }
@@ -161,11 +162,12 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_EcUtils_curveNam
 
         // Get the DER-encoded curve OID
         jni_borrow encodedBorrow = jni_borrow(env, java_buffer::from_array(env, encoded), "curveNameToInfo");
-        CBB cbb;
-        CBB_init_fixed(&cbb, encodedBorrow.data(), encodedBorrow.len());
-        if (!EC_KEY_marshal_curve_name(&cbb, group)) {
-            throw_openssl("Unable to get encoded curve OID");
-        }
+        //CBB cbb;
+        //CBB_init_fixed(&cbb, encodedBorrow.data(), encodedBorrow.len());
+        //if (!EC_KEY_marshal_curve_name(&cbb, group)) {
+        //   throw_openssl("Unable to get encoded curve OID");
+        //}
+        EC_GROUP_get_der_encoded_curve_OID(encodedBorrow.data(), encodedBorrow.len(), group);
         encodedBorrow.release();
 
         return nid;
@@ -220,9 +222,10 @@ JNIEXPORT jstring JNICALL Java_com_amazon_corretto_crypto_provider_EcUtils_getCu
         raii_env env(pEnv);
 
         jni_borrow borrow = jni_borrow(env, java_buffer::from_array(env, encoded), "getCurveNameFromEncoded");
-        CBS cbs;
-        CBS_init(&cbs, borrow.data(), borrow.len());
-        EC_GROUP* group = EC_KEY_parse_curve_name(&cbs);
+        //CBS cbs;
+        //CBS_init(&cbs, borrow.data(), borrow.len());
+        //EC_GROUP* group = EC_KEY_parse_curve_name(&cbs);
+        EC_GROUP* group = EC_GROUP_new_by_serialized_OID(borrow.data(), borrow.len());
         if (group == nullptr) {
             throw_openssl("Unable to parse curve OID ASN.1");
         }

@@ -87,7 +87,10 @@ public:
 
     java_buffer subrange(size_t offset) const
     {
-        return subrange(offset, std::max((ssize_t)0, (ssize_t)m_length - (ssize_t)offset));
+        if (m_length >= offset)
+            return subrange(offset, m_length - offset);
+        else
+            return subrange(offset, 0);
     }
 
     /**
