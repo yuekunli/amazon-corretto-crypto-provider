@@ -5,15 +5,18 @@
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
+#include <openssl/decoder.h>
+#include <openssl/core_names.h>
+#include <openssl/param_build.h>
 
 namespace AmazonCorrettoCryptoProvider {
 
-EVP_PKEY* der2EvpPrivateKey(
+EVP_PKEY* der2EvpPrivateKey_old(
     const unsigned char* der, const int derLen, bool shouldCheckPrivate, const char* javaExceptionClass)
 {
     const unsigned char* der_mutable_ptr = der; // openssl modifies the input pointer
 
-    PKCS8_PRIV_KEY_INFO* pkcs8Key = d2i_PKCS8_PRIV_KEY_INFO(NULL, &der_mutable_ptr, derLen);
+    PKCS8_PRIV_KEY_INFO* pkcs8Key = d2i_PKCS8_PRIV_KEY_INFO(NULL, &der_mutable_ptr, derLen);  // still available in 3.0
     if (der + derLen != der_mutable_ptr) {
         if (pkcs8Key) {
             PKCS8_PRIV_KEY_INFO_free(pkcs8Key);
@@ -23,7 +26,7 @@ EVP_PKEY* der2EvpPrivateKey(
     if (!pkcs8Key) {
         throw_openssl(javaExceptionClass, "Unable to parse DER key into PKCS8_PRIV_KEY_INFO");
     }
-    EVP_PKEY* result = EVP_PKCS82PKEY(pkcs8Key);
+    EVP_PKEY* result = EVP_PKCS82PKEY(pkcs8Key);  // still available in 3.0
     PKCS8_PRIV_KEY_INFO_free(pkcs8Key);
     if (!result) {
         throw_openssl(javaExceptionClass, "Unable to convert PKCS8_PRIV_KEY_INFO to EVP_PKEY");
@@ -97,11 +100,106 @@ EVP_PKEY* der2EvpPrivateKey(
     return result;
 }
 
+
+EVP_PKEY* der2EvpPrivateKey(
+    const unsigned char* der,
+    const int derLen,
+    bool shouldCheckPrivate,
+    const char* javaExceptionClass
+)
+{
+    const unsigned char* der_mutable_ptr = der; // openssl modifies the input pointer
+
+    PKCS8_PRIV_KEY_INFO* pkcs8Key = d2i_PKCS8_PRIV_KEY_INFO(NULL, &der_mutable_ptr, derLen);  // still available in 3.0
+    if (der + derLen != der_mutable_ptr) {
+        if (pkcs8Key) {
+            PKCS8_PRIV_KEY_INFO_free(pkcs8Key);
+        }
+        throw_openssl(javaExceptionClass, "Extra key information");
+    }
+    if (!pkcs8Key) {
+        throw_openssl(javaExceptionClass, "Unable to parse DER key into PKCS8_PRIV_KEY_INFO");
+    }
+    EVP_PKEY* pkey = EVP_PKCS82PKEY(pkcs8Key);  // still available in 3.0
+    PKCS8_PRIV_KEY_INFO_free(pkcs8Key);
+    if (!pkey) {
+        throw_openssl(javaExceptionClass, "Unable to convert PKCS8_PRIV_KEY_INFO to EVP_PKEY");
+    }
+
+    if (EVP_PKEY_base_id(pkey) == EVP_PKEY_RSA) {
+        BIGNUM* n;
+        BIGNUM* e;
+        BIGNUM* d;
+        BIGNUM* p;
+        BIGNUM* q;
+        BIGNUM* dmp1;
+        BIGNUM* dmq1;
+        BIGNUM* iqmp;
+
+        EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_N, &n);
+        EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_E, &e);
+        EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_D, &d);
+        EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_FACTOR1, &p);
+        EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_FACTOR2, &q);
+        EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_EXPONENT1, &dmp1);
+        EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_EXPONENT2, &dmq1);
+        EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_COEFFICIENT1, &iqmp);
+
+        bool need_rebuild = false;
+
+        if (!e)
+            need_rebuild = true;
+
+        if (p && BN_is_zero(p)) {
+            need_rebuild = true;
+        }
+        else if (q && BN_is_zero(q)) {
+            need_rebuild = true;
+        }
+        else if (dmp1 && BN_is_zero(dmp1)) {
+            need_rebuild = true;
+        }
+        else if (dmq1 && BN_is_zero(dmq1)) {
+            need_rebuild = true;
+        }
+        else if (iqmp && BN_is_zero(iqmp)) {
+            need_rebuild = true;
+        }
+
+        if (need_rebuild)
+        {
+            EVP_PKEY_CTX* rebuild_ctx = EVP_PKEY_CTX_new_from_name(NULL/*lib ctx*/, "RSA", NULL/*prop queue*/);
+            EVP_PKEY* rebuild_pkey = NULL;
+
+            if (!e)  // public exponent must be present
+                e = BN_new();
+
+            OSSL_PARAM_BLD* paramBuild = NULL;
+            OSSL_PARAM* params = NULL;
+
+            paramBuild = OSSL_PARAM_BLD_new();
+
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_N, n);
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_E, e);
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_D, d);
+            params = OSSL_PARAM_BLD_to_param(paramBuild);
+            EVP_PKEY_fromdata_init(rebuild_ctx);
+            EVP_PKEY_fromdata(rebuild_ctx, &rebuild_pkey, EVP_PKEY_KEYPAIR, params);
+            EVP_PKEY_CTX_free(rebuild_ctx);
+            EVP_PKEY_free(pkey);
+            pkey = rebuild_pkey;
+        }
+    }
+    return pkey;
+}
+
+
+
 EVP_PKEY* der2EvpPublicKey(const unsigned char* der, const int derLen, const char* javaExceptionClass)
 {
     const unsigned char* der_mutable_ptr = der; // openssl modifies the input pointer
 
-    EVP_PKEY* result = d2i_PUBKEY(NULL, &der_mutable_ptr, derLen);
+    EVP_PKEY* result = d2i_PUBKEY(NULL, &der_mutable_ptr, derLen);   // still available in 3.0
     if (der + derLen != der_mutable_ptr) {
         if (result) {
             EVP_PKEY_free(result);
@@ -119,7 +217,7 @@ EVP_PKEY* der2EvpPublicKey(const unsigned char* der, const int derLen, const cha
     return result;
 }
 
-bool checkKey(const EVP_PKEY* key)
+bool checkKey(EVP_PKEY* key)
 {
     int keyType = EVP_PKEY_base_id(key);
     bool result = false;
@@ -131,21 +229,35 @@ bool checkKey(const EVP_PKEY* key)
 
     switch (keyType) {
     case EVP_PKEY_RSA:
-        rsaKey = EVP_PKEY_get0_RSA(key);
-        RSA_get0_factors(rsaKey, &p, &q);
+        //rsaKey = EVP_PKEY_get0_RSA(key);
+        //RSA_get0_factors(rsaKey, &p, &q);
         // RSA_check_key only works when sufficient private values are set
+        
+        BIGNUM* p, * q;
+
+        EVP_PKEY_get_bn_param(key, OSSL_PKEY_PARAM_RSA_FACTOR1, &p);
+        EVP_PKEY_get_bn_param(key, OSSL_PKEY_PARAM_RSA_FACTOR2, &q);
+        
         if (p && !BN_is_zero(p) && q && !BN_is_zero(q)) {
-            result = RSA_check_key(rsaKey) == 1;
+            //result = RSA_check_key(rsaKey) == 1;
+            EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_from_pkey(NULL/*lib ctx*/, key, NULL/*prop queue*/);
+            result = EVP_PKEY_private_check(ctx);
+            EVP_PKEY_CTX_free(ctx);
         } else {
             // We don't have enough information to actually check the key
             result = true;
         }
-
+        if (p!=NULL)
+            BN_free(p);
+        if (q!=NULL)
+            BN_free(q);
         break;
     case EVP_PKEY_EC:
-        ecKey = EVP_PKEY_get0_EC_KEY(key);
-        result = EC_KEY_check_key(ecKey) == 1;
-
+        //ecKey = EVP_PKEY_get0_EC_KEY(key);
+        //result = EC_KEY_check_key(ecKey) == 1;
+        EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_from_pkey(NULL/*lib ctx*/, key, NULL/*prop queue*/);
+        result = EVP_PKEY_private_check(ctx);
+        EVP_PKEY_CTX_free(ctx);
         break;
     default:
         // Keys we can't check, we just claim are fine, because there is nothing else we can do.
@@ -161,7 +273,8 @@ const EVP_MD* digestFromJstring(raii_env& env, jstring digestName)
         return NULL;
     }
     jni_string name(env, digestName);
-    const EVP_MD* result = EVP_get_digestbyname(name.native_str);
+    //const EVP_MD* result = EVP_get_digestbyname(name.native_str);
+    const EVP_MD* result = EVP_MD_fetch(NULL/*lib ctx*/, name.native_str, NULL/*prop queue*/);
 
     if (!result) {
         throw_openssl("Unable to get digest");

@@ -60,3 +60,42 @@ JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_RsaGen_generate
         return 0;
     }
 }
+
+
+JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_RsaGen_generateEvpKey_ossl3(
+    JNIEnv* pEnv, jclass, jint bits, jboolean checkConsistency, jbyteArray pubExp)
+{
+    EVP_PKEY_CTX* ctx = NULL;
+    EVP_PKEY* pkey = NULL;
+
+    try {
+        raii_env env(pEnv);
+
+        ctx = EVP_PKEY_CTX_new_from_name(NULL/*lib ctx*/, "RSA", NULL/*pror queue*/);
+        
+        EVP_PKEY_keygen_init(ctx);
+        if (bits % 128 != 0) {
+            bits += 128 - (bits % 128);
+        }
+        
+        EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, bits);
+        EVP_PKEY_generate(ctx, &pkey);
+
+        if (checkConsistency)
+        {
+            int check_ret = 0;
+            if ((check_ret = EVP_PKEY_check(ctx)) <= 0)
+                throw_openssl("Key failed consistency check 1");
+            if ((check_ret = EVP_PKEY_public_check(ctx)) <= 0)
+                throw_openssl("Key failed consistency check 2");
+            if ((check_ret = EVP_PKEY_private_check(ctx)) <= 0)
+                throw_openssl("Key failed consistency check 3");
+            if ((check_ret = EVP_PKEY_pairwise_check(ctx)) <= 0)
+                throw_openssl("Key failed consistency check 4");
+        }
+        return reinterpret_cast<jlong>(pkey);
+    } catch (java_ex& ex) {
+        ex.throw_to_java(pEnv);
+        return 0;
+    }
+}

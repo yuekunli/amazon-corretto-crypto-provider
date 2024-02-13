@@ -5,6 +5,17 @@
 #include <openssl/evp.h>
 #include <jni.h>
 
+
+
+/**
+* https://www.openssl.org/docs/man1.1.1/man3/EVP_aes_128_xts.html
+* 
+* The XTS implementation in OpenSSL does not support streaming. 
+* That is there must only be one EVP_EncryptUpdate(3) call per EVP_EncryptInit_ex(3) call (and similarly with the “Decrypt” functions).
+* The iv parameter to EVP_EncryptInit_ex(3) or EVP_DecryptInit_ex(3) is the XTS “tweak” value.
+*/
+
+
 // Tweak and key are passed in the same buffer. The first 16 bytes
 // of this buffer is the tweak and the rest is the key.
 static int const AES_XTS_KEY_INDEX_START = 16;
@@ -20,12 +31,14 @@ public:
             throw_openssl(EX_RUNTIME_CRYPTO, "EVP_CIPHER_CTX_new failed.");
         }
 
+        cipher_ = EVP_CIPHER_fetch(NULL/*lib context*/, "AES-256-XTS", NULL /*prop queue*/);
+
         if (for_encryption) {
-            if (EVP_EncryptInit_ex(ctx_, EVP_aes_256_xts(), nullptr, key, tweak) != 1) {
+            if (EVP_EncryptInit_ex2(ctx_, cipher_/*EVP_aes_256_xts()*/, key, tweak, NULL/*params*/) != 1) {
                 throw_openssl(EX_RUNTIME_CRYPTO, "EVP_EncryptInit_ex failed.");
             }
         } else {
-            if (EVP_DecryptInit_ex(ctx_, EVP_aes_256_xts(), nullptr, key, tweak) != 1) {
+            if (EVP_DecryptInit_ex2(ctx_, cipher_/*EVP_aes_256_xts()*/, key, tweak, NULL/*params*/) != 1) {
                 throw_openssl(EX_RUNTIME_CRYPTO, "EVP_DecryptInit_ex failed.");
             }
         }
@@ -36,7 +49,11 @@ public:
         }
     }
 
-    ~AesXtsCipher() { EVP_CIPHER_CTX_free(ctx_); }
+    ~AesXtsCipher() 
+    {
+        EVP_CIPHER_free(cipher_);
+        EVP_CIPHER_CTX_free(ctx_); 
+    }
 
     void encrypt(unsigned char* input, int input_len, unsigned char* output)
     {
@@ -44,8 +61,8 @@ public:
         if (EVP_EncryptUpdate(ctx_, output, &out_len, input, input_len) != 1) {
             throw_openssl(EX_RUNTIME_CRYPTO, "EVP_EncryptUpdate failed.");
         }
-
-        if (EVP_EncryptFinal_ex(ctx_, output + out_len, &out_len) != 1) {
+        int tmp_len = 0;
+        if (EVP_EncryptFinal_ex(ctx_, output + out_len, &tmp_len) != 1) {
             throw_openssl(EX_RUNTIME_CRYPTO, "EVP_EncryptFinal_ex failed.");
         }
     }
@@ -57,13 +74,15 @@ public:
             throw_openssl(EX_RUNTIME_CRYPTO, "EVP_DecryptUpdate failed.");
         }
 
-        if (EVP_DecryptFinal_ex(ctx_, output + out_len, &out_len) != 1) {
+        int tmp_len = 0;
+        if (EVP_DecryptFinal_ex(ctx_, output + out_len, &tmp_len) != 1) {
             throw_openssl(EX_RUNTIME_CRYPTO, "EVP_DecryptFinal_ex failed.");
         }
     }
 
 private:
     EVP_CIPHER_CTX* ctx_;
+    EVP_CIPHER* cipher_;
 };
 
 }
@@ -72,6 +91,7 @@ using namespace AmazonCorrettoCryptoProvider;
 
 extern "C" JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_AesXtsSpi_enc(JNIEnv* env,
     jclass,
+
     jbyteArray jPackedTweakKey,
     jbyteArray jinput,
     jint inputOffset,

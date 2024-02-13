@@ -62,44 +62,53 @@ public:
     virtual ~SecureBuffer() { zeroize(); }
     operator type*() { return buf; }
     operator const type*() const { return buf; }
-    type& operator*() { return &buf; }
-    const type& operator*() const { return &buf; }
+
+    // LiYK: I think the code in the original open source project is wrong, change "return &buf" to "return *buf"
+    type& operator*() { return *buf; }
+    const type& operator*() const { return *buf; }
+    
+    
     type& operator[](size_t idx) { return buf[idx]; }
     type& operator[](size_t idx) const { return buf[idx]; }
     virtual void zeroize() { secureZero(buf, sizeof(buf)); }
 };
 
 #if defined (_MSC_VER)
-#define hostToBigEndian64(x) htonll(x)
-#define bigEndianToHost64(x) ntohll(x)
+    #define hostToBigEndian64(x) htonll(x)
+    #define bigEndianToHost64(x) ntohll(x)
 
 #else // on non-microsoft compiler
 
-#if __BYTE_ORDER == __LITTLE_ENDIAN   //LiYK: __BYTE_ORDER__ is GCC common predefined macros, what about __BYTE_ORDER?
-#if defined(__x86_64__)
-// We need to continue supporting some old x86_64 build-chains, so we use a hand-rolled version of bswap64
-static inline uint64_t swapEndian(uint64_t val)
-{
-    uint64_t result = val;
-    __asm__("bswap %0" : "+r"(result));
-    return result;
-}
-#define hostToBigEndian64(x) swapEndian(x)
-#define bigEndianToHost64(x) swapEndian(x)
+    #if __BYTE_ORDER == __LITTLE_ENDIAN   //LiYK: __BYTE_ORDER__ is GCC common predefined macros, what about __BYTE_ORDER?
+                                            // according to GNU documentation https://gcc.gnu.org/onlinedocs/cpp/Common-Predefined-Macros.html
+                                            // this line is probably better written this way: 
+                                            // #if  __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 
-#else
-// For all other platforms (currently just aarch64), we know we are on a modern build-chain
-// and can use the build-in function. (Also, the x86_64 assembly above won't work.)
-#define hostToBigEndian64(x) __builtin_bswap64(x)
-#define bigEndianToHost64(x) __builtin_bswap64(x)
+        #if defined(__x86_64__)  // LiYK: likely a system-specific predefined macro on GCC
+            // We need to continue supporting some old x86_64 build-chains, so we use a hand-rolled version of bswap64
+            static inline uint64_t swapEndian(uint64_t val)
+            {
+                uint64_t result = val;
+                __asm__("bswap %0" : "+r"(result));
+                return result;
+            }
 
-#endif // Platform logic in __BYTE_ORDER == __LITTLE_ENDIAN
+            #define hostToBigEndian64(x) swapEndian(x)
+            #define bigEndianToHost64(x) swapEndian(x)
 
-#else // __BYTE_ORDER == __BIG_ENDIAN
-// No conversions are needed, so these methods become NOPs
-#define hostToBigEndian64(x) (x)
-#define bigEndianToHost64(x) (x)
-#endif // BYTE_ORDER logic
+        #else
+            // For all other platforms (currently just aarch64), we know we are on a modern build-chain
+            // and can use the build-in function. (Also, the x86_64 assembly above won't work.)
+            #define hostToBigEndian64(x) __builtin_bswap64(x)
+            #define bigEndianToHost64(x) __builtin_bswap64(x)
+
+        #endif // Platform logic in __BYTE_ORDER == __LITTLE_ENDIAN
+
+    #else // __BYTE_ORDER == __BIG_ENDIAN
+        // No conversions are needed, so these methods become NOPs
+        #define hostToBigEndian64(x) (x)
+        #define bigEndianToHost64(x) (x)
+    #endif // BYTE_ORDER logic
 
 #endif // defined (_MSC_VER)
 

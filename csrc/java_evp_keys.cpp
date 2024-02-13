@@ -11,8 +11,19 @@
 #include <openssl/ec.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
+#include <openssl/types.h>  // PKCS8_PRIV_KEY_INFO
+#include <openssl/encoder.h>
+#include <openssl/decoder.h>
+#include <openssl/core_names.h>
 
 using namespace AmazonCorrettoCryptoProvider;
+
+
+
+// LiYK: The 2nd and 3rd functions can be retained, the OpenSSL APIs called in them are still available in OpenSSL 3.x
+// The 4th and 5th functions call another API in this project, there is work needed in those deeper APIs
+
+
 
 /*
  * Class:     com_amazon_corretto_crypto_provider_EvpKey
@@ -150,11 +161,12 @@ JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpKeyFactory_x
  * Method:    ec2Evp
  * Signature: ([B[B[B[B)J
  */
-JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpKeyFactory_ec2Evp(JNIEnv* pEnv,
+JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpKeyFactory_ec2Evp(   //  DELETE THIS
+    JNIEnv* pEnv,
     jclass,
-    jbyteArray sArr,
-    jbyteArray wxArr,
-    jbyteArray wyArr,
+    jbyteArray sArr,  // private key (an integer)
+    jbyteArray wxArr, // public key ( x coordinate of a point)
+    jbyteArray wyArr, // public key ( y coordinate of a point)
     jbyteArray paramsArr,
     jboolean shouldCheckPrivate)
 {
@@ -174,7 +186,7 @@ JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpKeyFactory_e
             const unsigned char* derPtr = borrow.data();
             const unsigned char* derMutablePtr = derPtr;
 
-            ec.set(d2i_ECParameters(NULL, &derMutablePtr, paramsLength));
+            ec.set(d2i_ECParameters(NULL, &derMutablePtr, paramsLength));  // d2i_ECParameters deprecated in 3.0
             if (!ec.isInitialized()) {
                 throw_openssl(EX_INVALID_KEY_SPEC, "Invalid parameters");
             }
@@ -183,7 +195,7 @@ JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpKeyFactory_e
             }
 
             key.set(EVP_PKEY_new());
-            if (!EVP_PKEY_set1_EC_KEY(key, ec)) {
+            if (!EVP_PKEY_set1_EC_KEY(key, ec)) {  // EVP_PKEY_set1_EC_KEY  deprecated in 3.0     EVP_PKEY_CTX_new_from_pkey  EVP_PKEY_fromdata
                 throw_openssl(EX_INVALID_KEY_SPEC, "Could not convert to EVP_PKEY");
             }
         }
@@ -192,11 +204,15 @@ JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpKeyFactory_e
         {
             if (sArr) {
                 BigNumObj s = BigNumObj::fromJavaArray(env, sArr);
-                if (EC_KEY_set_private_key(ec, s) != 1) {
+                if (EC_KEY_set_private_key(ec, s) != 1) {  // EVP_KEY_set_private_key  deprecated in 3.0      OSSL_PKEY_PARAM_PRIV_KEY
                     throw_openssl(EX_RUNTIME_CRYPTO, "Unable to set private key");
                 }
 
-                if (!wxArr || !wyArr) {
+                if (!wxArr || !wyArr) { 
+                    
+                    // LiYK: this block generates a public key based on the provided private key,
+                    // EVP_POINT_mul is certainly doing a scala-point-multiplication
+                    
                     // We have to calculate this ourselves.
                     // Otherwise, it will be taken care of later
                     const EC_GROUP* group = EC_KEY_get0_group(ec);
@@ -233,11 +249,93 @@ JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpKeyFactory_e
     }
 }
 
+
+
+// by inspecting the Java caller of this function, either sArr is present or (wxArr and wyArr) is present,
+// never will both be present.
+JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpKeyFactory_ec2Evp_ossl3(
+    JNIEnv* pEnv,
+    jclass,
+    jbyteArray sArr,  // private key (an integer)
+    jbyteArray wxArr, // public key ( x coordinate of a point)
+    jbyteArray wyArr, // public key ( y coordinate of a point)
+    jbyteArray paramsArr,
+    jboolean shouldCheckPrivate)
+{
+    try {
+        raii_env env(pEnv);
+
+        java_buffer paramsBuff = java_buffer::from_array(env, paramsArr);
+        size_t paramsLength = paramsBuff.len();
+        jni_borrow borrow(env, paramsBuff, "params");
+
+        const unsigned char* derPtr = borrow.data();
+        const unsigned char* derMutablePtr = derPtr;
+
+        EVP_PKEY* params_as_pkey = NULL;
+        EVP_PKEY* pkey = NULL;
+        EVP_PKEY_CTX* pkey_ctx = NULL;
+        OSSL_DECODER_CTX* decoder_ctx = NULL;
+
+        int selection = EVP_PKEY_KEY_PARAMETERS;
+        const char* structure = "type-specific";
+        decoder_ctx = OSSL_DECODER_CTX_new_for_pkey(&params_as_pkey, "DER", structure, "EC", selection, NULL/*lib ctx*/, NULL/*prop queue*/);
+        OSSL_DECODER_from_data(decoder_ctx, &derMutablePtr, &paramsLength);
+        OSSL_DECODER_CTX_free(decoder_ctx);
+        
+        pkey_ctx = EVP_PKEY_CTX_new_from_pkey(NULL/*lib ctx*/, params_as_pkey, NULL/*prop queue*/);
+
+        EVP_PKEY_fromdata_init(pkey_ctx);
+
+        OSSL_PARAM params[7];
+        OSSL_PARAM* p = params;
+
+        if (sArr) {
+            java_buffer priv_key_buff = java_buffer::from_array(env, sArr);
+            size_t priv_key_buff_len = priv_key_buff.len();
+            jni_borrow priv_key_borrow(env, priv_key_buff, "privkey");
+
+            *p++ = OSSL_PARAM_construct_octet_string(OSSL_PKEY_PARAM_PRIV_KEY, priv_key_borrow.data(), priv_key_buff_len);
+            *p = OSSL_PARAM_construct_end();
+            EVP_PKEY_fromdata(pkey_ctx, &pkey, EVP_PKEY_KEYPAIR, params);
+            EVP_PKEY_keygen_init(pkey_ctx);  // not sure if this works
+            EVP_PKEY_generate(pkey_ctx, &pkey);
+            if (shouldCheckPrivate)
+            {
+                int check_ret = EVP_PKEY_private_check(pkey_ctx);
+                // check check_ret
+            }
+        }
+
+        if (wxArr && wyArr)
+        {
+            java_buffer pub_key_x = java_buffer::from_array(env, wxArr);
+            size_t pub_key_x_len = pub_key_x.len();
+            jni_borrow qx_borrow = jni_borrow(env, pub_key_x, "pubkeyx");
+
+            java_buffer pub_key_y = java_buffer::from_array(env, wyArr);
+            size_t pub_key_y_len = pub_key_y.len();
+            jni_borrow qy_borrow = jni_borrow(env, pub_key_y, "pubkeyy");
+
+            *p++ = OSSL_PARAM_construct_BN(OSSL_PKEY_PARAM_EC_PUB_X, qx_borrow.data(), pub_key_x_len);
+            *p++ = OSSL_PARAM_construct_BN(OSSL_PKEY_PARAM_EC_PUB_Y, qy_borrow.data(), pub_key_y_len);
+            *p = OSSL_PARAM_construct_end();
+
+            EVP_PKEY_fromdata(pkey_ctx, &pkey, EVP_PKEY_PUBLIC_KEY, params);
+        }
+        return reinterpret_cast<jlong>(pkey);
+    }
+    catch (java_ex& ex) {
+        ex.throw_to_java(pEnv);
+    }
+}
+
+
 /*
  * Class:     com_amazon_corretto_crypto_provider_EvpKey
  * Method:    getDerEncodedParams
  */
-JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpKey_getDerEncodedParams(
+JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpKey_getDerEncodedParams(   // DELETE THIS
     JNIEnv* pEnv, jclass, jlong keyHandle)
 {
     jbyteArray result = NULL;
@@ -272,11 +370,53 @@ JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpKey_get
     return result;
 }
 
+
+
+JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpKey_getDerEncodedParams_ossl3(
+    JNIEnv* pEnv, jclass, jlong keyHandle)
+{
+    jbyteArray result = NULL;
+    try {
+        raii_env env(pEnv);
+
+        EVP_PKEY* key = reinterpret_cast<EVP_PKEY*>(keyHandle);
+        OPENSSL_buffer_auto der;
+        OSSL_ENCODER_CTX* ectx = NULL;
+        int keyNid = EVP_PKEY_base_id(key);
+        CHECK_OPENSSL(keyNid);
+
+        int derLen = 0;
+        switch (keyNid) {
+        case EVP_PKEY_EC:
+ 
+            int selection = EVP_PKEY_KEY_PARAMETERS;
+            const char* structure = "type-specific";
+
+            ectx = OSSL_ENCODER_CTX_new_for_pkey(key, selection, "DER", structure, NULL/*prop queue*/);
+            size_t derLen = 0;
+            OSSL_ENCODER_to_data(ectx, &der, &derLen); // this function internally allocates memory on heap and makes "der" point to it.
+            break;
+        default:
+            throw_java_ex(EX_RUNTIME_CRYPTO, "Unsupported key type for parameters");
+        }
+        CHECK_OPENSSL(derLen > 0);
+        result = env->NewByteArray(derLen);
+        env->SetByteArrayRegion(result, 0, derLen, der);
+        OSSL_ENCODER_CTX_free(ectx);
+        // der is wrapped in an object whose destructor will take care of freeing memory
+    }
+    catch (java_ex& ex) {
+        ex.throw_to_java(pEnv);
+    }
+    return result;
+}
+
+
 /*
  * Class:     com_amazon_corretto_crypto_provider_EvpEcPublicKey
  * Method:    getPublicPointCoords
  */
-JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpEcPublicKey_getPublicPointCoords(
+JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpEcPublicKey_getPublicPointCoords(   //  DELETE THIS
     JNIEnv* pEnv, jclass, jlong keyHandle, jbyteArray xArr, jbyteArray yArr)
 {
     const EC_KEY* ecKey = NULL;
@@ -303,11 +443,47 @@ JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpEcPublicKey_g
     }
 }
 
+
+// LiYK: See ec_kmgmt.c     function: key_to_params
+// This function calls EC_POINT_get_affine_coordinates
+// 
+// ec_get_params (ec_kmgmt.c)
+//    common_get_params (ec_kmgmt.c)
+//       key_to_params
+//
+JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpEcPublicKey_getPublicPointCoords_ossl3(
+    JNIEnv* pEnv, jclass, jlong keyHandle, jbyteArray xArr, jbyteArray yArr)
+{
+    EVP_PKEY* key = NULL;
+    BIGNUM* x = NULL, * y = NULL;
+    try {
+        raii_env env(pEnv);
+        key = reinterpret_cast<EVP_PKEY*>(keyHandle);
+
+        EVP_PKEY_get_bn_param(key, OSSL_PKEY_PARAM_EC_PUB_X, &x);
+        EVP_PKEY_get_bn_param(key, OSSL_PKEY_PARAM_EC_PUB_Y, &y);
+        
+        bn2jarr(env, xArr, x);
+        bn2jarr(env, yArr, y);
+
+        BN_free(x);
+        BN_free(y);
+    }
+    catch (java_ex& ex) {
+        if (x != NULL)
+            BN_free(x);
+        if (y != NULL)
+            BN_free(y);
+        ex.throw_to_java(pEnv);
+    }
+}
+
+
 /*
  * Class:     com_amazon_corretto_crypto_provider_EvpEcPrivateKey
  * Method:    getPrivateValue
  */
-JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpEcPrivateKey_getPrivateValue(
+JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpEcPrivateKey_getPrivateValue(   // DELETE THIS
     JNIEnv* pEnv, jclass, jlong keyHandle)
 {
     const EC_KEY* ecKey = NULL;
@@ -328,7 +504,35 @@ JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpEcPriva
     }
 }
 
-JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaKey_getModulus(
+
+JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpEcPrivateKey_getPrivateValue_ossl3(
+    JNIEnv* pEnv, jclass, jlong keyHandle)
+{
+    EVP_PKEY* key = NULL;
+    BIGNUM* privKey = NULL;
+    try {
+        raii_env env(pEnv);
+        key = reinterpret_cast<EVP_PKEY*>(keyHandle);
+
+        EVP_PKEY_get_bn_param(key, OSSL_PKEY_PARAM_PRIV_KEY, &privKey);
+        jbyteArray ret = bn2jarr(env, privKey);
+        BN_free(privKey);
+        return ret;
+    }
+    catch (java_ex& ex) {
+        if (privKey != NULL)
+            BN_free(privKey);
+        ex.throw_to_java(pEnv);
+        return NULL;
+    }
+}
+
+
+
+/***********************************************/
+/* RSA */
+
+JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaKey_getModulus(   // DELETE THIS
     JNIEnv* pEnv, jclass, jlong keyHandle)
 {
     const RSA* rsaKey;
@@ -347,7 +551,25 @@ JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaKey_
     }
 }
 
-JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaKey_getPublicExponent(
+
+JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaKey_getModulus_ossl3(
+    JNIEnv* pEnv, jclass, jlong keyHandle)
+{
+    BIGNUM* n;
+    try {
+        raii_env env(pEnv);
+        EVP_PKEY* key = reinterpret_cast<EVP_PKEY*>(keyHandle);
+        EVP_PKEY_get_bn_param(key, OSSL_PKEY_PARAM_RSA_N, &n);
+        return bn2jarr(env, n);
+    }
+    catch (java_ex& ex) {
+        ex.throw_to_java(pEnv);
+        return NULL;
+    }
+}
+
+
+JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaKey_getPublicExponent(   // DELETE THIS
     JNIEnv* pEnv, jclass, jlong keyHandle)
 {
     const RSA* rsaKey;
@@ -366,7 +588,28 @@ JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaKey_
     }
 }
 
-JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaPrivateKey_getPrivateExponent(
+
+JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaKey_getPublicExponent_ossl3(
+    JNIEnv* pEnv, jclass, jlong keyHandle)
+{
+    BIGNUM* e;
+    try {
+        raii_env env(pEnv);
+
+        EVP_PKEY* key = reinterpret_cast<EVP_PKEY*>(keyHandle);
+     
+        EVP_PKEY_get_bn_param(key, OSSL_PKEY_PARAM_RSA_E, &e);
+
+        return bn2jarr(env, e);
+    }
+    catch (java_ex& ex) {
+        ex.throw_to_java(pEnv);
+        return NULL;
+    }
+}
+
+
+JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaPrivateKey_getPrivateExponent(  // DELETE THIS
     JNIEnv* pEnv, jclass, jlong keyHandle)
 {
     const RSA* rsaKey;
@@ -385,7 +628,28 @@ JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaPriv
     }
 }
 
-JNIEXPORT jboolean JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaPrivateCrtKey_hasCrtParams(
+
+JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaPrivateKey_getPrivateExponent_ossl3(
+    JNIEnv* pEnv, jclass, jlong keyHandle)
+{
+    BIGNUM* d;
+    try {
+        raii_env env(pEnv);
+
+        EVP_PKEY* key = reinterpret_cast<EVP_PKEY*>(keyHandle);
+   
+        EVP_PKEY_get_bn_param(key, OSSL_PKEY_PARAM_RSA_D, &d);
+
+        return bn2jarr(env, d);
+    }
+    catch (java_ex& ex) {
+        ex.throw_to_java(pEnv);
+        return NULL;
+    }
+}
+
+
+JNIEXPORT jboolean JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaPrivateCrtKey_hasCrtParams(  // DELETE THIS
     JNIEnv* pEnv, jclass, jlong keyHandle)
 {
     const RSA* r;
@@ -413,9 +677,43 @@ JNIEXPORT jboolean JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaPrivat
     }
 }
 
+
+JNIEXPORT jboolean JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaPrivateCrtKey_hasCrtParams_ossl3(
+    JNIEnv* pEnv, jclass, jlong keyHandle)
+{
+    try {
+        raii_env env(pEnv);
+
+        EVP_PKEY* key = reinterpret_cast<EVP_PKEY*>(keyHandle);
+
+        BIGNUM* dmp1;
+        BIGNUM* dmq1;
+        BIGNUM* iqmp;
+
+        EVP_PKEY_get_bn_param(key, OSSL_PKEY_PARAM_RSA_EXPONENT1, &dmp1);
+        EVP_PKEY_get_bn_param(key, OSSL_PKEY_PARAM_RSA_EXPONENT2, &dmq1);
+        EVP_PKEY_get_bn_param(key, OSSL_PKEY_PARAM_RSA_COEFFICIENT1, &iqmp);
+        
+        if (!dmp1 || !dmq1 || !iqmp) {
+            return false;
+        }
+        if (BN_is_zero(dmp1) || BN_is_zero(dmq1) || BN_is_zero(iqmp)) {
+            return false;
+        }
+        return true;
+    }
+    catch (java_ex& ex) {
+        ex.throw_to_java(pEnv);
+        return false;
+    }
+}
+
+
+
 // protected static native void getCrtParams(long ptr, byte[] crtCoefArr, byte[] expPArr, byte[] expQArr, byte[]
 // primePArr, byte[] primeQArr, byte[] publicExponentArr, byte[] privateExponentArr);
-JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaPrivateCrtKey_getCrtParams(JNIEnv* pEnv,
+JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaPrivateCrtKey_getCrtParams(    // DELETE THIS
+    JNIEnv* pEnv,
     jclass,
     jlong keyHandle,
     jbyteArray coefOut,
@@ -458,13 +756,62 @@ JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaPrivateCrt
     }
 }
 
+
+JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaPrivateCrtKey_getCrtParams_ossl3(
+    JNIEnv* pEnv,
+    jclass,
+    jlong keyHandle,
+    jbyteArray coefOut,
+    jbyteArray dmPOut,
+    jbyteArray dmQOut,
+    jbyteArray primePOut,
+    jbyteArray primeQOut,
+    jbyteArray pubExpOut,
+    jbyteArray privExpOut)
+{
+    try {
+        raii_env env(pEnv);
+        EVP_PKEY* key = reinterpret_cast<EVP_PKEY*>(keyHandle);
+
+        BIGNUM* e;
+        BIGNUM* d;
+        BIGNUM* p;
+        BIGNUM* q;
+        BIGNUM* dmp1;
+        BIGNUM* dmq1;
+        BIGNUM* iqmp;
+
+        EVP_PKEY_get_bn_param(key, OSSL_PKEY_PARAM_RSA_E, &e);
+        EVP_PKEY_get_bn_param(key, OSSL_PKEY_PARAM_RSA_D, &d);
+        EVP_PKEY_get_bn_param(key, OSSL_PKEY_PARAM_RSA_FACTOR1, &p);
+        EVP_PKEY_get_bn_param(key, OSSL_PKEY_PARAM_RSA_FACTOR2, &q);
+        EVP_PKEY_get_bn_param(key, OSSL_PKEY_PARAM_RSA_EXPONENT1, &dmp1);
+        EVP_PKEY_get_bn_param(key, OSSL_PKEY_PARAM_RSA_EXPONENT2, &dmq1);
+        EVP_PKEY_get_bn_param(key, OSSL_PKEY_PARAM_RSA_COEFFICIENT1, &iqmp);
+
+        bn2jarr(env, pubExpOut, e);
+        bn2jarr(env, privExpOut, d);
+        bn2jarr(env, primePOut, p);
+        bn2jarr(env, primeQOut, q);
+        bn2jarr(env, dmPOut, dmp1);
+        bn2jarr(env, dmQOut, dmq1);
+        bn2jarr(env, coefOut, iqmp);
+    }
+    catch (java_ex& ex) {
+        ex.throw_to_java(pEnv);
+    }
+}
+
+
+
 /*
  * Class:     com_amazon_corretto_crypto_provider_EvpKeyFactory
  * Method:    rsa2Evp
  * Signature: ([B[B[B[B[B[B[B[B)J
  * modulus, publicExponentArr, privateExponentArr, crtCoefArr, expPArr, expQArr, primePArr, primeQArr
  */
-JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpKeyFactory_rsa2Evp(JNIEnv* pEnv,
+JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpKeyFactory_rsa2Evp(    //  DELETE THIS
+    JNIEnv* pEnv,
     jclass,
     jbyteArray modulusArray,
     jbyteArray publicExponentArr,
@@ -568,12 +915,108 @@ JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpKeyFactory_r
     }
 }
 
+
+
+JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpKeyFactory_rsa2Evp_ossl3(
+    JNIEnv* pEnv,
+    jclass,
+    jbyteArray modulusArray,
+    jbyteArray publicExponentArr,
+    jbyteArray privateExponentArr,
+    jbyteArray crtCoefArr,
+    jbyteArray expPArr,
+    jbyteArray expQArr,
+    jbyteArray primePArr,
+    jbyteArray primeQArr,
+    jboolean shouldCheckPrivate)
+{
+    try {
+        raii_env env(pEnv);
+        EVP_PKEY* pkey = NULL;
+        EVP_PKEY_CTX* ctx = NULL;
+
+        ctx = EVP_PKEY_CTX_new_from_name(NULL/*lib ctx*/, "RSA", NULL/*prop queue*/);
+
+        OSSL_PARAM_BLD* paramBuild = NULL;
+        OSSL_PARAM* params = NULL;
+
+        paramBuild = OSSL_PARAM_BLD_new();
+
+        BigNumObj e = BigNumObj::fromJavaArray(env, publicExponentArr);
+        BigNumObj d = BigNumObj::fromJavaArray(env, privateExponentArr);
+        BigNumObj n = BigNumObj::fromJavaArray(env, modulusArray);
+        BigNumObj p = BigNumObj::fromJavaArray(env, primePArr);
+        BigNumObj q = BigNumObj::fromJavaArray(env, primeQArr);
+        BigNumObj iqmp = BigNumObj::fromJavaArray(env, crtCoefArr);
+        BigNumObj dmp1 = BigNumObj::fromJavaArray(env, expPArr);
+        BigNumObj dmq1 = BigNumObj::fromJavaArray(env, expQArr);
+
+        OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_N, n);
+
+        if (primePArr && primeQArr)
+        {
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_FACTOR1, p);
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_FACTOR2, q);
+        }
+
+        if (crtCoefArr && expPArr && expQArr) {
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_EXPONENT1, dmp1);
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_EXPONENT2, dmq1);
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_COEFFICIENT1, iqmp);
+        }
+
+        if (publicExponentArr && !privateExponentArr) {
+
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_E, e);
+            params = OSSL_PARAM_BLD_to_param(paramBuild);
+            EVP_PKEY_fromdata_init(ctx);
+            EVP_PKEY_fromdata(ctx, &pkey, EVP_PKEY_PUBLIC_KEY, params);
+        }
+        else if (privateExponentArr) {
+
+            /**
+            * The RSA public exponent “e” value. This value must always be set 
+            * when creating a raw key using EVP_PKEY_fromdata(3). Note that when
+            * a decryption operation is performed, that this value is used for
+            * blinding purposes to prevent timing attacks.
+            */
+
+            if (!publicExponentArr)
+            {
+                e.releaseOwnership();
+                e = bn_zero();
+            }
+
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_E, e);
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_D, d);
+
+            params = OSSL_PARAM_BLD_to_param(paramBuild);
+            EVP_PKEY_fromdata_init(ctx);
+            EVP_PKEY_fromdata(ctx, &pkey, EVP_PKEY_KEYPAIR, params);
+        }
+
+        e.releaseOwnership();
+        d.releaseOwnership();
+        n.releaseOwnership();
+        p.releaseOwnership();
+        q.releaseOwnership();
+        iqmp.releaseOwnership();
+        dmp1.releaseOwnership();
+        dmq1.releaseOwnership();
+
+    }
+    catch (java_ex& ex)
+    {
+        ex.throw_to_java(pEnv);
+    }
+}
+
 /*
  * Class:     com_amazon_corretto_crypto_provider_EvpRsaPrivateKey
  * Method:    encodeRsaPrivateKey
  * Signature: (J)[B
  */
-JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaPrivateKey_encodeRsaPrivateKey(
+JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaPrivateKey_encodeRsaPrivateKey(  // DELETE THIS
     JNIEnv* pEnv, jclass, jlong keyHandle)
 {
     jbyteArray result = NULL;
@@ -598,13 +1041,19 @@ JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaPriv
 
             // Key is lacking the public exponent so we must encode manually
             // Fortunately, this must be the most boring type of key (no params)
+
+            // LiYK: If the public exponent is lacking, this block sets 'e' and factors and CRT parameters to zero, and then do PKCS8 encoding
+            // Is this because these parameters may not be present in the encoding if I don't do this?
+            // Having them as 0 in the encoded output is different than not having them at all???
+
+
             BIGNUM* zeroedE = BN_dup(e);
             if (nullptr == zeroedE) {
                 CHECK_OPENSSL(zeroedE = BN_new());
             }
 
             CHECK_OPENSSL(zeroed_rsa.set(RSA_new()));
-            if (!RSA_set0_key(zeroed_rsa, BN_dup(n), zeroedE, BN_dup(d))) {
+            if (!RSA_set0_key(zeroed_rsa, BN_dup(n), zeroedE, BN_dup(d))) {  // LiYK: this doesn't change anything, it just copies 'n' and 'd' and gives the same 'e' which is zero
                 throw_openssl(EX_RUNTIME_CRYPTO, "Unable to set RSA components");
             }
             if (!RSA_set0_factors(zeroed_rsa, BN_new(), BN_new())) {
@@ -615,7 +1064,7 @@ JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaPriv
             }
             stack_key.set(EVP_PKEY_new());
             CHECK_OPENSSL(stack_key.isInitialized());
-            EVP_PKEY_set1_RSA(stack_key, zeroed_rsa);
+            EVP_PKEY_set1_RSA(stack_key, zeroed_rsa);  // LiYK: It doesn't seem that this call eventually generates 'e' and those factors and CRT (Chinese Remainder Theorem) parameters
 
             CHECK_OPENSSL(pkcs8.set(EVP_PKEY2PKCS8(stack_key)));
 
@@ -637,4 +1086,70 @@ JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaPriv
     }
 
     return result;
+}
+
+#include <openssl/param_build.h>
+JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaPrivateKey_encodeRsaPrivateKey_ossl3(
+    JNIEnv* pEnv, jclass, jlong keyHandle)
+{
+    jbyteArray result = NULL;
+
+    try {
+        raii_env env(pEnv);
+
+        EVP_PKEY* pkey = reinterpret_cast<EVP_PKEY*>(keyHandle);
+
+        OPENSSL_buffer_auto der;
+
+        BIGNUM* e = NULL, * d = NULL, * n = NULL;
+
+        size_t derLen = 0;
+
+        int selection = EVP_PKEY_KEYPAIR;
+
+
+        EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_E, &e);
+        EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_D, &d);
+        EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_N, &n);
+
+        if (BN_null_or_zero(e))  // LiYK: I doubt this is necessary, if public exponent is missing, 
+        {
+            EVP_PKEY_CTX* filled_key_ctx = EVP_PKEY_CTX_new_from_pkey(NULL/*lib ctx*/, pkey, NULL/*prop queue*/);
+            EVP_PKEY* filled_pkey;
+            //EVP_PKEY_keygen_init(filled_key_ctx);
+            //EVP_PKEY_generate(filled_key_ctx, &filled_pkey);
+
+            OSSL_PARAM_BLD* paramBuild = NULL;
+            OSSL_PARAM* params = NULL;
+
+            paramBuild = OSSL_PARAM_BLD_new();
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_E, BN_new());
+
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_FACTOR1, BN_new());
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_FACTOR2, BN_new());
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_EXPONENT1, BN_new());
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_EXPONENT2, BN_new());
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_COEFFICIENT1, BN_new());
+            params = OSSL_PARAM_BLD_to_param(paramBuild);
+            EVP_PKEY_fromdata_init(filled_key_ctx);
+            EVP_PKEY_fromdata(filled_key_ctx, &filled_pkey, EVP_PKEY_KEYPAIR, params);
+
+            OSSL_ENCODER_CTX* encoder_ctx = OSSL_ENCODER_CTX_new_for_pkey(filled_pkey, selection, "DER", NULL/*lib ctx*/, NULL/*prop queue*/);
+
+            OSSL_ENCODER_to_data(encoder_ctx, &der, &derLen);
+
+        }
+        else
+        {
+            OSSL_ENCODER_CTX* encoder_ctx = OSSL_ENCODER_CTX_new_for_pkey(pkey, selection, "DER", NULL/*lib ctx*/, NULL/*prop queue*/);
+
+            OSSL_ENCODER_to_data(encoder_ctx, &der, &derLen);
+        }
+
+        result = env->NewByteArray(derLen);
+        env->SetByteArrayRegion(result, 0, derLen, der);
+    }
+    catch (java_ex& ex) {
+        ex.throw_to_java(pEnv);
+    }
 }

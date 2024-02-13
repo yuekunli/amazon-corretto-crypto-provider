@@ -93,6 +93,6 @@ JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_Utils_getEvpMdF
  */
 JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_Utils_getDigestLength(JNIEnv*, jclass, jlong evpMd)
 {
-    return EVP_MD_size(reinterpret_cast<const EVP_MD*>(evpMd));
+    return EVP_MD_size(reinterpret_cast<const EVP_MD*>(evpMd));  // LiYK: EVP_MD_size  -->  EVP_MD_get_size   still available on 3.0
 }
 }

@@ -21,85 +21,108 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 
 class EvpHmac extends MacSpi implements Cloneable {
-  /** When passed to {@code evpMd} indicates that the native code should not call HMAC_Init_ex. */
-  private static long DO_NOT_INIT = -1;
-  /**
-   * When passed to {@code evpMd} indicates that while {@code HMAC_Init_ex} must be called, it
-   * should be called with NULL for both the key and evpMd parameters.
-   */
-  private static long DO_NOT_REKEY = -2;
 
-  /** Returns the size of the array needed to hold the entire HMAC context. */
-  private static native int getContextSize();
+  private static final int NEED_COMPLETE_REINITIALIZE = 0;
+  private static final int RESET_INPUT_KEEP_KEY_AND_MD = 1;
+
+  private static final int CONTINUOUS_UPDATE = 2;
+
+  /* Returns the size of the array needed to hold the entire HMAC context. */
+  //private static native int getContextSize();
 
   /**
-   * Calls {@code HMAC_Update} with {@code input}, possibly calling {@code HMAC_Init_ex} first (if
-   * {@code evpMd} is any value except {@link #DO_NOT_INIT}). This method should only be used via
-   * {@link #synchronizedUpdateCtxArray(byte[], byte[], long, byte[], int, int)}.
+   * Calls {@code EVP_MAC_Update} with {@code input}, possibly calling {@code EVP_MAC_Init} first (if
+   * {@code instruction} is any value except {@link #CONTINUOUS_UPDATE}). This method should only be used via
+   * {@link #synchronizedUpdateCtxArray(long, long[], int, int, byte[], byte[], int, int)}.
    *
-   * @param ctx opaque array containing native context
+   * @param ctx opaque pointer to an EVP_MAC_CTX
    */
   private static native void updateCtxArray(
-      byte[] ctx, byte[] key, long evpMd, byte[] input, int offset, int length);
+      long ctx,
+      long[] ctxOut,
+      int instruction,
+      int digestCode,
+      byte[] key,
+      byte[] input,
+      int offset,
+      int length);
   /**
-   * @see {@link #updateCtxArray(byte[], byte[], long, byte[], int, int)}
+   * @see #updateCtxArray(long, long[], int, int, byte[], byte[], int, int)
    */
   private static void synchronizedUpdateCtxArray(
-      byte[] ctx, byte[] key, long evpMd, byte[] input, int offset, int length) {
-    synchronized (ctx) {
-      updateCtxArray(ctx, key, evpMd, input, offset, length);
+          long ctx,
+          long[] ctxOut,
+          int instruction,
+          int digestCode,
+          byte[] key,
+          byte[] input,
+          int offset,
+          int length)
+  {
+    synchronized (ctxOut) {
+      updateCtxArray(ctx, ctxOut, instruction, digestCode, key, input, offset, length);
     }
   }
 
   /**
-   * Calls {@code HMAC_Final}, and places the result in {@code result}. This method should only be
-   * called via {@link #synchronizedDoFinal(byte[], byte[])}
+   * Calls {@code EVP_MAC_Final}, and places the result in {@code result}. This method should only be
+   * called via {@link #synchronizedDoFinal(long[], byte[])}
    *
    * @param ctx opaque array containing native context
-   * @param result
+   * @param result output array
    */
-  private static native void doFinal(byte[] ctx, byte[] result);
+  private static native void doFinal(long ctx, byte[] result);
   /**
-   * @see {@link #doFinal(byte[], byte[])}
+   * @see #doFinal(long, byte[])
    */
-  private static void synchronizedDoFinal(byte[] ctx, byte[] result) {
+  private static void synchronizedDoFinal(long[] ctx, byte[] result) {
     synchronized (ctx) {
-      doFinal(ctx, result);
+      doFinal(ctx[0], result);
     }
   }
 
   /**
-   * Calls {@code HMAC_Init_ex}, {@code HMAC_Update}, and {@code HMAC_Final} with {@code input}.
-   * This method should only be used via {@link #synchronizedFastHmac(byte[], byte[], long, byte[],
-   * int, int, byte[])}.
+   * Calls {@code EVP_MAC_Init}, {@code EVP_MAC_Update}, and {@code EVP_MAC_Final} with {@code input}.
+   * This method should only be used via {@link #synchronizedFastHmac(long, long[], int, int, byte[], byte[], int, int, byte[])}.
    *
    * @param ctx opaque array containing native context
    */
   private static native void fastHmac(
-      byte[] ctx, byte[] key, long evpMd, byte[] input, int offset, int length, byte[] result);
+      long ctx,
+      long[] ctxOut,
+      int instruction,
+      int digestCode,
+      byte[] key,
+      byte[] input,
+      int offset,
+      int length,
+      byte[] result);
   /**
-   * @see {@link #fastHmac(byte[], byte[], long, byte[], int, int, byte[])}
+   * @see #fastHmac(long, long[], int, int, byte[], byte[], int, int, byte[])
    */
   private static void synchronizedFastHmac(
-      byte[] ctx, byte[] key, long evpMd, byte[] input, int offset, int length, byte[] result) {
-    synchronized (ctx) {
-      fastHmac(ctx, key, evpMd, input, offset, length, result);
+          long ctx,
+          long[] ctxOut,
+          int instruction,
+          int digestCode,
+          byte[] key,
+          byte[] input,
+          int offset,
+          int length,
+          byte[] result)
+  {
+    synchronized (ctxOut) {
+      fastHmac(ctx, ctxOut, instruction, digestCode, key, input, offset, length, result);
     }
   }
-
-  private static final int CONTEXT_SIZE = getContextSize();
 
   // These must be explicitly cloned
   private HmacState state;
   private InputBuffer<byte[], Void, RuntimeException> buffer;
 
-  EvpHmac(long evpMd, int digestLength) {
-    if (evpMd == DO_NOT_INIT || evpMd == DO_NOT_REKEY) {
-      throw new AssertionError(
-          "Unexpected value for evpMd conflicting with reserved negative value: " + evpMd);
-    }
-    this.state = new HmacState(evpMd, digestLength);
-    this.buffer = new InputBuffer<byte[], Void, RuntimeException>(1024);
+  EvpHmac(int digestCode, int digestLength) {
+    this.state = new HmacState(digestCode, digestLength);
+    this.buffer = new InputBuffer<>(1024);
     configureLambdas();
   }
 
@@ -107,38 +130,44 @@ class EvpHmac extends MacSpi implements Cloneable {
     buffer
         .withInitialUpdater(
             (src, offset, length) -> {
-              assertInitialized();
+              assertKeyProvided();
               byte[] rawKey = state.encoded_key;
-              long evpMd = DO_NOT_REKEY;
+              int instruction;
               if (state.needsRekey) {
-                evpMd = state.evpMd;
+                instruction = NEED_COMPLETE_REINITIALIZE;
               }
-              synchronizedUpdateCtxArray(state.context, rawKey, evpMd, src, offset, length);
+              else {
+                instruction = RESET_INPUT_KEEP_KEY_AND_MD;
+              }
+              synchronizedUpdateCtxArray(state.ctx[0], state.ctx, instruction, state.digestCode, rawKey, src, offset, length);
               state.needsRekey = false;
               return null;
             })
         .withUpdater(
             (ignored, src, offset, length) -> {
-              assertInitialized();
-              synchronizedUpdateCtxArray(state.context, null, DO_NOT_INIT, src, offset, length);
+              assertKeyProvided();
+              synchronizedUpdateCtxArray(state.ctx[0], state.ctx, CONTINUOUS_UPDATE, state.digestCode, null, src, offset, length);
             })
         .withDoFinal(
             (ignored) -> {
-              assertInitialized();
+              assertKeyProvided();
               final byte[] result = new byte[state.digestLength];
-              synchronizedDoFinal(state.context, result);
+              synchronizedDoFinal(state.ctx, result);
               return result;
             })
         .withSinglePass(
             (src, offset, length) -> {
-              assertInitialized();
+              assertKeyProvided();
               final byte[] result = new byte[state.digestLength];
               byte[] rawKey = state.encoded_key;
-              long evpMd = DO_NOT_REKEY;
+              int instruction;
               if (state.needsRekey) {
-                evpMd = state.evpMd;
+                instruction = NEED_COMPLETE_REINITIALIZE;
               }
-              synchronizedFastHmac(state.context, rawKey, evpMd, src, offset, length, result);
+              else {
+                instruction = RESET_INPUT_KEEP_KEY_AND_MD;
+              }
+              synchronizedFastHmac(state.ctx[0], state.ctx, instruction, state.digestCode, rawKey, src, offset, length, result);
               state.needsRekey = false;
               return result;
             });
@@ -182,9 +211,9 @@ class EvpHmac extends MacSpi implements Cloneable {
     buffer.reset();
   }
 
-  private void assertInitialized() {
+  private void assertKeyProvided() {
     if (state.key == null) {
-      throw new IllegalStateException("Mac not initialized");
+      throw new IllegalStateException("HMAC key not provided");
     }
   }
 
@@ -199,15 +228,16 @@ class EvpHmac extends MacSpi implements Cloneable {
 
   private static final class HmacState implements Cloneable {
     private SecretKey key;
-    private final long evpMd;
+    private final int digestCode;
+    public long[] ctx;
     private final int digestLength;
-    private byte[] context = new byte[CONTEXT_SIZE];
     private byte[] encoded_key;
     boolean needsRekey = true;
 
-    private HmacState(long evpMd, int digestLength) {
-      this.evpMd = evpMd;
+    private HmacState(int digestCode, int digestLength) {
+      this.digestCode = digestCode;
       this.digestLength = digestLength;
+      ctx = new long[1];
     }
 
     private void setKey(SecretKey key) throws InvalidKeyException {
@@ -230,9 +260,9 @@ class EvpHmac extends MacSpi implements Cloneable {
     @Override
     public HmacState clone() {
       try {
-        HmacState cloned = (HmacState) super.clone();
-        cloned.context = cloned.context.clone();
-        return cloned;
+        HmacState cl = (HmacState) super.clone();
+        cl.ctx = ctx.clone();  // Do I need this? encoded_key is an array, but it's not separately cloned.
+        return cl;
       } catch (final CloneNotSupportedException ex) {
         throw new AssertionError(ex);
       }
@@ -243,10 +273,10 @@ class EvpHmac extends MacSpi implements Cloneable {
   private static class TestMacProvider extends Provider {
     private final String macName;
     private final Class<? extends MacSpi> spi;
-    // The superconstructor taking a double version is deprecated in java 9.
+    // The super constructor taking a double version is deprecated in java 9.
     // However, the replacement for it is
     // unavailable in java 8, so to build on both with warnings on our only choice
-    // is suppress deprecation warnings.
+    // is suppressing deprecation warnings.
     @SuppressWarnings({"deprecation"})
     protected TestMacProvider(String macName, Class<? extends MacSpi> spi) {
       super("test provider", 0, "internal self-test provider for " + macName);
@@ -313,13 +343,15 @@ class EvpHmac extends MacSpi implements Cloneable {
   }
 
   static class MD5 extends EvpHmac {
-    private static final long evpMd = Utils.getEvpMdFromName("md5");
-    private static final int digestLength = Utils.getDigestLength(evpMd);
+    //private static final long evpMd = Utils.getEvpMdFromName("md5");
+    //private static final int digestLength = Utils.getDigestLength(evpMd);
+    private static final int digestCode = 0;
+    private static final int digestLength = 16;
     static final SelfTestSuite.SelfTest SELF_TEST =
         new SelfTestSuite.SelfTest("HmacMD5", MD5::runSelfTest);
 
     public MD5() {
-      super(evpMd, digestLength);
+      super(digestCode, digestLength);
     }
 
     public static SelfTestResult runSelfTest() {
@@ -328,13 +360,15 @@ class EvpHmac extends MacSpi implements Cloneable {
   }
 
   static class SHA1 extends EvpHmac {
-    private static final long evpMd = Utils.getEvpMdFromName("sha1");
-    private static final int digestLength = Utils.getDigestLength(evpMd);
+    //private static final long evpMd = Utils.getEvpMdFromName("sha1");
+    //private static final int digestLength = Utils.getDigestLength(evpMd);
+    private static final int digestCode = 1;
+    private static final int digestLength = 20;
     static final SelfTestSuite.SelfTest SELF_TEST =
         new SelfTestSuite.SelfTest("HmacSHA1", SHA1::runSelfTest);
 
     public SHA1() {
-      super(evpMd, digestLength);
+      super(digestCode, digestLength);
     }
 
     public static SelfTestResult runSelfTest() {
@@ -343,13 +377,15 @@ class EvpHmac extends MacSpi implements Cloneable {
   }
 
   static class SHA256 extends EvpHmac {
-    private static final long evpMd = Utils.getEvpMdFromName("sha256");
-    private static final int digestLength = Utils.getDigestLength(evpMd);
+    //private static final long evpMd = Utils.getEvpMdFromName("sha256");
+    //private static final int digestLength = Utils.getDigestLength(evpMd);
+    private static final int digestCode = 2;
+    private static final int digestLength = 32;
     static final SelfTestSuite.SelfTest SELF_TEST =
         new SelfTestSuite.SelfTest("HmacSHA256", SHA256::runSelfTest);
 
     public SHA256() {
-      super(evpMd, digestLength);
+      super(digestCode, digestLength);
     }
 
     public static SelfTestResult runSelfTest() {
@@ -358,13 +394,15 @@ class EvpHmac extends MacSpi implements Cloneable {
   }
 
   static class SHA384 extends EvpHmac {
-    private static final long evpMd = Utils.getEvpMdFromName("sha384");
-    private static final int digestLength = Utils.getDigestLength(evpMd);
+    //private static final long evpMd = Utils.getEvpMdFromName("sha384");
+    //private static final int digestLength = Utils.getDigestLength(evpMd);
+    private static final int digestCode = 3;
+    private static final int digestLength = 48;
     static final SelfTestSuite.SelfTest SELF_TEST =
         new SelfTestSuite.SelfTest("HmacSHA384", SHA384::runSelfTest);
 
     public SHA384() {
-      super(evpMd, digestLength);
+      super(digestCode, digestLength);
     }
 
     public static SelfTestResult runSelfTest() {
@@ -373,13 +411,15 @@ class EvpHmac extends MacSpi implements Cloneable {
   }
 
   static class SHA512 extends EvpHmac {
-    private static final long evpMd = Utils.getEvpMdFromName("sha512");
-    private static final int digestLength = Utils.getDigestLength(evpMd);
+    //private static final long evpMd = Utils.getEvpMdFromName("sha512");
+    //private static final int digestLength = Utils.getDigestLength(evpMd);
+    private static final int digestCode = 4;
+    private static final int digestLength = 64;
     static final SelfTestSuite.SelfTest SELF_TEST =
         new SelfTestSuite.SelfTest("HmacSHA512", SHA512::runSelfTest);
 
     public SHA512() {
-      super(evpMd, digestLength);
+      super(digestCode, digestLength);
     }
 
     public static SelfTestResult runSelfTest() {

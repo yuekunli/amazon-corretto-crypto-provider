@@ -11,6 +11,8 @@
 #include <cassert>
 #include <cstdio>
 
+#include <openssl/core_names.h>
+
 #define NATIVE_MODE_ENCRYPT 1
 #define NATIVE_MODE_DECRYPT 0
 
@@ -34,13 +36,13 @@ static void initContext(raii_env& env, raii_cipher_ctx& ctx, jint opMode, java_b
 
     switch (key.len()) {
     case KEY_LEN_AES128:
-        cipher = EVP_aes_128_gcm();
+        cipher = EVP_CIPHER_fetch(NULL/*lib context*/, "AES-128-GCM", NULL/*property queue*/);
         break;
     case KEY_LEN_AES192:
-        cipher = EVP_aes_192_gcm();
+        cipher = EVP_CIPHER_fetch(NULL/*lib context*/, "AES-192-GCM", NULL/*property queue*/);
         break;
     case KEY_LEN_AES256:
-        cipher = EVP_aes_256_gcm();
+        cipher = EVP_CIPHER_fetch(NULL/*lib context*/, "AES-265-GCM", NULL/*property queue*/);
         break;
     default:
         throw java_ex(EX_RUNTIME_CRYPTO, "Unsupported key length");
@@ -51,6 +53,13 @@ static void initContext(raii_env& env, raii_cipher_ctx& ctx, jint opMode, java_b
     SecureBuffer<uint8_t, KEY_LEN_AES256> keybuf;
     key.get_bytes(env, keybuf.buf, 0, key.len());
 
+    OSSL_PARAM params[2] = {
+        OSSL_PARAM_END, OSSL_PARAM_END
+    };
+
+    jni_borrow ivBorrow(env, iv, "iv");
+
+    /*
     if (unlikely(!EVP_CipherInit_ex(ctx, cipher, NULL, NULL, NULL, opMode))) {
         throw java_ex::from_openssl(EX_RUNTIME_CRYPTO, "Initializing cipher failed");
     }
@@ -59,11 +68,15 @@ static void initContext(raii_env& env, raii_cipher_ctx& ctx, jint opMode, java_b
         throw java_ex::from_openssl(EX_RUNTIME_CRYPTO, "Setting IV length failed");
     }
 
-    jni_borrow ivBorrow(env, iv, "iv");
-
     if (unlikely(!EVP_CipherInit_ex(ctx, NULL, NULL, keybuf, ivBorrow.data(), opMode))) {
         throw java_ex::from_openssl(EX_RUNTIME_CRYPTO, "Final cipher init failed");
     }
+    */
+
+    size_t ivlen = iv.len();
+    params[0] = OSSL_PARAM_construct_size_t(OSSL_CIPHER_PARAM_AEAD_IVLEN, &ivlen);
+
+    EVP_CipherInit_ex2(ctx, cipher, keybuf, ivBorrow.data(), opMode, params);
 }
 
 static int updateLoop(raii_env& env, java_buffer out, java_buffer in, EVP_CIPHER_CTX* ctx)
@@ -132,11 +145,31 @@ static int cryptFinish(raii_env& env, int opMode, java_buffer resultBuf, unsigne
 
     if (opMode == NATIVE_MODE_ENCRYPT) {
         // Encrypt: Fetch tag
+
+        /*
         int tagRV = EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, tagLen, result.check_range(outl, tagLen));
         if (unlikely(!tagRV)) {
             throw java_ex(EX_RUNTIME_CRYPTO, "Failed to get GCM tag");
         }
+        */
+
+        OSSL_PARAM params[2] = {
+            OSSL_PARAM_END, OSSL_PARAM_END
+        };
+
+        unsigned char* outtag = new unsigned char[tagLen];
+
+        params[0] = OSSL_PARAM_construct_octet_string(OSSL_CIPHER_PARAM_AEAD_TAG,
+            outtag, tagLen);
+
+        EVP_CIPHER_CTX_get_params(ctx, params);
+
+        // copy outtag to result
+        memcpy(result.check_range(outl, tagLen), outtag, tagLen);
+
         outl += tagLen;
+
+        delete outtag;
     }
 
     return outl;
@@ -167,12 +200,16 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_AesGcmSpi_oneSho
             ctx.borrow(reinterpret_cast<EVP_CIPHER_CTX*>(ctxPtr));
 
             jni_borrow ivBorrow(env, iv, "iv");
+
+            EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_IVLEN, iv.len(), NULL); // LiYK: add this line, not sure if it makes a difference
+
             if (unlikely(!EVP_CipherInit_ex(ctx, NULL, NULL, NULL, ivBorrow.data(), NATIVE_MODE_ENCRYPT))) {
                 throw java_ex::from_openssl(EX_RUNTIME_CRYPTO, "Failed to set IV");
             }
+
         } else {
             ctx.init();
-            EVP_CIPHER_CTX_init(ctx);
+            //EVP_CIPHER_CTX_init(ctx); // LiYK: this macro is deprecated and it just calls EVP_CIPHER_CTX_reset
             java_buffer key = java_buffer::from_array(env, keyArray);
             initContext(env, ctx, NATIVE_MODE_ENCRYPT, key, iv);
         }
@@ -223,7 +260,7 @@ JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_AesGcmSpi_encry
 {
     raii_cipher_ctx ctx;
     ctx.init();
-    EVP_CIPHER_CTX_init(ctx);
+    //EVP_CIPHER_CTX_init(ctx);
 
     try {
         raii_env env(pEnv);

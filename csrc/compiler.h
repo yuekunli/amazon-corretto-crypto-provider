@@ -17,13 +17,13 @@
 
 
 #ifdef HAVE_ATTR_COLD
-#define COLD __attribute__((cold))
+#define COLD __attribute__((cold))  // GCC attribute, inform the compiler that a function is unlikely executed
 #else
 #define COLD
 #endif
 
 #ifdef HAVE_ATTR_NORETURN
-#define NORETURN __attribute__((noreturn))
+#define NORETURN __attribute__((noreturn)) // GCC attribute, avoid spurious warnings of uninitialized variables
 #else
 #define NORETURN
 #endif

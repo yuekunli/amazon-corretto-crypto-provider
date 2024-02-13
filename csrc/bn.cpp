@@ -39,6 +39,13 @@ void bn2jarr(raii_env& env, java_buffer& buffer, const BIGNUM* bn)
         throw_java_ex(EX_ERROR, "Bad bignum length");
     }
 
+    if (unlikely(bnLen > borrow.len()))
+    {
+        throw_java_ex(EX_ERROR, "insufficient buffer to accommodate BIGNUM");
+    }
+
+    // BN_bn2binpad() returns the number of bytes written or -1 if the supplied buffer is too small.
+
     CHECK_OPENSSL(BN_bn2binpad(bn, borrow, borrow.len()) >= 0);
 }
 

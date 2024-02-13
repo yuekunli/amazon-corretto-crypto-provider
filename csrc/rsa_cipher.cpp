@@ -13,6 +13,8 @@
 
 using namespace AmazonCorrettoCryptoProvider;
 
+// LiYK APIs are still available in OpenSSL 3
+
 void setPaddingParams(EVP_PKEY_CTX* keyCtx, int padding, long oaepMdPtr, long mgfMdPtr)
 {
     CHECK_OPENSSL(EVP_PKEY_CTX_set_rsa_padding(keyCtx, padding));
@@ -37,7 +39,7 @@ void setPaddingParams(EVP_PKEY_CTX* keyCtx, int padding, long oaepMdPtr, long mg
 
 JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_RsaCipher_cipher(JNIEnv* pEnv,
     jclass,
-    jlong ctxHandle,
+    jlong keyHandle,
     jint mode,
     jint padding,
     jlong oaepMdPtr,
@@ -59,14 +61,20 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_RsaCipher_cipher
             throw_java_ex(EX_NPE, "Null output array");
         }
 
-        EVP_PKEY* key = reinterpret_cast<EVP_PKEY*>(ctxHandle);
+        EVP_PKEY* key = reinterpret_cast<EVP_PKEY*>(keyHandle);
         // It is unclear if allocating a new EVP_PKEY_CTX for each operation is expensive.
         // If profiling shows that this is a significant cost when in a hot-path we should figure out a way to
         // cache and reusing the EVP_PKEY_CTX within the context of a single instance of a RsaCipher object.
         // We'll need to be careful to free/replace it when the key changes and properly duplicate it if we
         // decide to implement Cloneable.
-        EVP_PKEY_CTX_auto keyCtx = EVP_PKEY_CTX_auto::from(EVP_PKEY_CTX_new(key, /*engine*/ nullptr));
-        CHECK_OPENSSL(keyCtx.isInitialized());
+
+
+
+        //EVP_PKEY_CTX_auto keyCtx = EVP_PKEY_CTX_auto::from(EVP_PKEY_CTX_new(key, /*engine*/ nullptr));
+        //CHECK_OPENSSL(keyCtx.isInitialized());
+
+        EVP_PKEY_CTX* keyCtx = EVP_PKEY_CTX_new_from_pkey(NULL/*lib ctx*/, key, NULL/*prop queue*/);
+
 
         java_buffer inBuf = java_buffer::from_array(env, input, inOff, inLength);
         java_buffer outBuf = java_buffer::from_array(env, output, outOff, EVP_PKEY_size(key));
@@ -123,6 +131,8 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_RsaCipher_cipher
         } else if (len & 0xffff0000) {
             throw_java_ex(EX_RUNTIME_CRYPTO, "Output length doensn't fit in an int!");
         }
+
+        EVP_PKEY_CTX_free(keyCtx);
 
         return (jint)len;
     } catch (java_ex& ex) {

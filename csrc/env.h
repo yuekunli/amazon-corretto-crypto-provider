@@ -51,6 +51,7 @@ private:
 
     const char* m_java_classname;
     const std::string m_message;
+
 #ifdef BACKTRACE_ON_EXCEPTION
     std::vector<void*> m_trace;
     void capture_trace() COLD { AmazonCorrettoCryptoProvider::capture_trace(m_trace); }
@@ -60,6 +61,9 @@ private:
 
 public:
     java_ex(jthrowable exception) COLD : m_java_exception(exception), m_java_classname(nullptr), m_message() { }
+    // LiYK: this ctor is just used in a few places, usually after calling SetByteArrayRegion or GetByteArrayRegion,
+    // the other two constructors are used rather more often. So although this class is called java_ex, 
+    // it's more often used to represent an exception incurred in this C level or OpenSSL level not in Java level.
 
     java_ex(const char* java_classname, const char* message) COLD : m_java_exception(nullptr),
                                                                     m_java_classname(java_classname),
@@ -119,6 +123,18 @@ void throw_openssl() NORETURN COLD;
 
 // Wrapper for openssl calls that shouldn't normally fail; if this fails a generic exception
 // will be thrown.
+
+
+// LiYK: Macro replacement will happen first in pre-processing.
+// In compile time, concrete instance of this template must be created for each different T
+// I think this will have to infer the value type of an expression.
+// Then during run time, when something like this is executed:
+// check_openssl_impl(EVP_PKEY_new(ctx) == 1, "abcabc");
+// The expression will be evaluated first and then only the value of the expression is passed
+// into the function, this should be one of the fundamental principles of C/C++.
+// Unlike other high level language, expression can't be passed as an object.
+// So the "expr" on the "if" line and the "return" line doesn't cause the expression to be
+// executed twive.
 template <typename T> T check_openssl_impl(T expr, const char* errstr)
 {
     if (unlikely(!expr)) {
@@ -302,7 +318,7 @@ template <class T> struct SecureAlloc {
         ::operator delete(p);
     }
 
-    void construct(T* p, const T& val) { new (p) T(val); }
+    void construct(T* p, const T& val) { new (p) T(val); }  // LiYK: use "val" to initialize a new object of T, and then assign the address of the object to 'p'
 
     void destroy(T* p) noexcept { p->~T(); }
 };

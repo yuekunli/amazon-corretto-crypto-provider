@@ -258,7 +258,15 @@ public:
 class jni_borrow {
 private:
 
-    // LiYK: I don't quite understand the rationale behind keeping track of the chain of borrows.
+    
+    // LiYK: A jni_borrow is associated to either a java array or a java direct buffer. In case of java array
+    // accessing the data has to be enclosed by Get/ReleasePrimitiveArrayCritical. Such requirement makes code
+    // around jni_borrow feel like the handling of a lock where I need to lock and release.
+    // In order to not forget to call Release, I link all the jni_borrow objects in a list and the list behaves
+    // like a stack, i.e. a jni_borrow is pushed onto the stack when it's Get...Critical, and the last Get
+    // must the first Release. Then I associate such list(stack) with an raii_env, because the Get/Release...Critical
+    // calls are env member functions. All these efforts just ensure the Get and Release calls for jni_borrows are
+    // paired up.
 
     // The borrow that was opened before us, if any
     jni_borrow* m_prior_borrow;

@@ -319,17 +319,36 @@ JNIEXPORT jboolean JNICALL Java_com_amazon_corretto_crypto_provider_EvpSignature
 
         delete ctx;
 
+
+        /**
+        * EVP_DigestVerifyFinal() and EVP_DigestVerify() return 1 for success; 
+        * any other value indicates failure. A return value of zero indicates that the signature did not verify successfully
+        * (that is, tbs did not match the original data or the signature had an invalid form), 
+        * while other values indicate a more serious error (and sometimes also indicate an invalid signature form).
+        */
+
+
         if (likely(result == 1)) {
             return true;
+        } else if (result == 0) {  // signature doesn't verify
+            return false;
         } else {
             unsigned long errorCode = drainOpensslErrors();
 
             // Mismatched signatures are not an error case, so return false
             // instead of throwing per JCA convention.
-            if (ECDSA_R_MISMATCHED_SIGNATURE == (errorCode & ECDSA_R_MISMATCHED_SIGNATURE)
-                || RSA_R_MISMATCHED_SIGNATURE == (errorCode & RSA_R_MISMATCHED_SIGNATURE)) {
+            // 
+            // 
+            //if (ECDSA_R_MISMATCHED_SIGNATURE == (errorCode & ECDSA_R_MISMATCHED_SIGNATURE)
+            //    || RSA_R_MISMATCHED_SIGNATURE == (errorCode & RSA_R_MISMATCHED_SIGNATURE)) {
+            //    return false;
+            //}
+
+            if (EC_R_BAD_SIGNATURE == errorCode || RSA_R_BAD_SIGNATURE == errorCode) {
                 return false;
             }
+
+
 
             // JCA/JCA requires us to try to throw an exception on corrupted signatures, but only if it isn't an RSA
             // signature
@@ -517,8 +536,15 @@ JNIEXPORT jboolean JNICALL Java_com_amazon_corretto_crypto_provider_EvpSignature
 
             // Mismatched signatures are not an error case, so return false
             // instead of throwing per JCA convention.
-            if (ECDSA_R_MISMATCHED_SIGNATURE == (errorCode & ECDSA_R_MISMATCHED_SIGNATURE)
-                || RSA_R_MISMATCHED_SIGNATURE == (errorCode & RSA_R_MISMATCHED_SIGNATURE)) {
+
+
+            //if (ECDSA_R_MISMATCHED_SIGNATURE == (errorCode & ECDSA_R_MISMATCHED_SIGNATURE)
+            //    || RSA_R_MISMATCHED_SIGNATURE == (errorCode & RSA_R_MISMATCHED_SIGNATURE)) {
+            //    return false;
+            //}
+
+
+            if (EC_R_BAD_SIGNATURE == errorCode || RSA_R_BAD_SIGNATURE == errorCode) {
                 return false;
             }
 

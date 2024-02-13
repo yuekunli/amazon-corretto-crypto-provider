@@ -31,7 +31,7 @@ private:
 
     void ensure_init() const
     {
-        BigNumObj* pThis = const_cast<BigNumObj*>(this);
+        BigNumObj* pThis = const_cast<BigNumObj*>(this);  // LiYK: const_cast: throw away constness, but I don't quite understand why this function is declared const.
 
         if (!pThis->m_pBN) {
             pThis->m_pBN = BN_new();
@@ -93,7 +93,7 @@ public:
     }
 
 #ifdef HAVE_CPP11
-    BigNumObj(const BigNumObj&) = delete;
+    BigNumObj(const BigNumObj&) = delete;   // LiYK: One BIGNUM object is only owned by one BigNumObj, so we don't want copy constructor or copy assignment
     BigNumObj& operator=(const BigNumObj&) = delete;
 
     BigNumObj& operator=(BigNumObj&& bn)
@@ -107,10 +107,10 @@ public:
     {
         *this = std::move(bn);
     }
-#else
+#else // LiYK: before CPP11, there is no rvalue reference, so there is no "move" constructor or "move" assignment
     BigNumObj& operator=(const BigNumObj& other_const)
     {
-        BigNumObj& other = const_cast<BigNumObj&>(other_const);
+        BigNumObj& other = const_cast<BigNumObj&>(other_const);  // LiYK: const_cast: throw away constness
 
         // No std::move before C++11, use this class's implementation.
         move(other);

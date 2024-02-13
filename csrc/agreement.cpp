@@ -42,14 +42,19 @@ JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpKeyAgre
 
     EVP_PKEY* privKey = reinterpret_cast<EVP_PKEY*>(privateKeyPtr);
     EVP_PKEY* pubKey = reinterpret_cast<EVP_PKEY*>(publicKeyPtr);
+    EVP_PKEY_CTX* pctx = NULL;
 
     try {
         raii_env env(pEnv);
-
+        /*
         EVP_PKEY_CTX_auto pctx = EVP_PKEY_CTX_auto::from(EVP_PKEY_CTX_new(privKey, NULL));
         if (!pctx.isInitialized()) {
             throw_openssl("Unable to create PKEY_CTX");
         }
+        */
+       
+        pctx = EVP_PKEY_CTX_new_from_pkey(NULL/*lib ctx*/, privKey, NULL/*prop queue*/);
+        
         if (EVP_PKEY_derive_init(pctx) <= 0) {
             throw_openssl("Unable to initialize context");
         }
@@ -71,7 +76,12 @@ JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpKeyAgre
         }
         // This may throw, if it does we'll just keep the exception state as we return.
         env->SetByteArrayRegion(result, resultLen - returnedLen, returnedLen, (jbyte*)&tmpResult[0]);
+
+        EVP_PKEY_CTX_free(pctx);
+
     } catch (java_ex& ex) {
+        if (pctx != NULL)
+            EVP_PKEY_CTX_free(pctx);
         ex.throw_to_java(pEnv);
     }
 

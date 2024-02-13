@@ -11,7 +11,7 @@ import java.util.function.Function;
  * Class to handle buffering data prior to passing it through to the native code. It buffers it up
  * into fewer (larger) chunks to avoid incurring marshalling overhead. The first time a handler is
  * called it will be an {@code InitialUpdate} handler (if present). All subsequent calls are
- * guaranteed to go to standard {@code Update} handlers. If all of the data can be buffered prior to
+ * guaranteed to go to standard {@code Update} handlers. If all data can be buffered prior to
  * calling {@link #doFinal()}, then this class will attempt to use the {@code SinglePass} handler if
  * available.
  *
@@ -26,39 +26,39 @@ import java.util.function.Function;
  * equivalents. All InitialUpdate handlers default to calling their Update equivalents. {@link
  * #withSinglePass(ArrayFunction)} defaults to calling the update and doFinal steps.
  *
- * @param <T> result type
+ * @param <R> result type
  * @param <S> state type
  * @param <X> exception which can be thrown upon completion
  */
-public class InputBuffer<T, S, X extends Throwable> implements Cloneable {
+public class InputBuffer<R, S, X extends Throwable> implements Cloneable {
 
   @FunctionalInterface
-  public static interface ArrayStateConsumer<S> {
-    public void accept(S state, byte[] src, int offset, int length);
+  public interface ArrayStateConsumer<INPUT_CONTEXT_TYPE> { // IProcessArrayData_WithInputContext_NoReturn
+    void accept(INPUT_CONTEXT_TYPE state, byte[] src, int offset, int length);
   }
 
   @FunctionalInterface
-  public static interface ArrayFunction<T, X extends Throwable> {
-    public T apply(byte[] src, int offset, int length) throws X;
+  public interface ArrayFunction<RETURN_TYPE, EXCEPTION extends Throwable> { // IProcessArrayData_NoInputContext_WithReturn
+    RETURN_TYPE apply(byte[] src, int offset, int length) throws EXCEPTION;
   }
 
-  public static interface FinalHandlerFunction<T, R, X extends Throwable> {
-    public R apply(T t) throws X;
-  }
-
-  @FunctionalInterface
-  public static interface ByteBufferFunction<S> extends Function<ByteBuffer, S> {
-    public S apply(ByteBuffer bb);
+  public interface FinalHandlerFunction<STATE, RESULT, EXCEPTION extends Throwable> { // IFinalHandler_WithInputContext_WithReturn
+    RESULT apply(STATE t) throws EXCEPTION;
   }
 
   @FunctionalInterface
-  public static interface ByteBufferBiConsumer<S> extends BiConsumer<S, ByteBuffer> {
-    public void accept(S state, ByteBuffer bb);
+  public interface ByteBufferFunction<STATE> extends Function<ByteBuffer, STATE> { // IProcessBufferData_NoInputContext_WithReturn
+    STATE apply(ByteBuffer bb);
   }
 
   @FunctionalInterface
-  public static interface StateSupplier<S> extends Function<S, S> {
-    public S apply(S state);
+  public interface ByteBufferBiConsumer<STATE> extends BiConsumer<STATE, ByteBuffer> {  // IProcessBufferData_WithInputContext_NoReturn
+    void accept(STATE state, ByteBuffer bb);
+  }
+
+  @FunctionalInterface
+  public interface StateSupplier<STATE> extends Function<STATE, STATE> { // IStateSupplier
+    STATE apply(STATE state);
   }
 
   private final int buffSize;
@@ -67,7 +67,7 @@ public class InputBuffer<T, S, X extends Throwable> implements Cloneable {
   private S state;
 
   private ArrayStateConsumer<S> arrayUpdater;
-  private FinalHandlerFunction<S, T, X> finalHandler;
+  private FinalHandlerFunction<S, R, X> finalHandler;
   private StateSupplier<S> stateSupplier = (oldState) -> oldState;
   private Optional<Function<S, S>> stateCloner = Optional.empty();
   // If absent, delegates to arrayUpdater
@@ -77,7 +77,7 @@ public class InputBuffer<T, S, X extends Throwable> implements Cloneable {
   // If absent, delegates to bufferUpdater or initialArrayUpdater
   private Optional<ByteBufferFunction<S>> initialBufferUpdater = Optional.empty();
   // If absent, delegates to firstArrayUpdater+finalHandler
-  private Optional<ArrayFunction<T, X>> singlePassArray = Optional.empty();
+  private Optional<ArrayFunction<R, X>> singlePassArray = Optional.empty();
 
   InputBuffer(final int capacity) {
     if (capacity <= 0) {
@@ -96,48 +96,48 @@ public class InputBuffer<T, S, X extends Throwable> implements Cloneable {
     return buff.size();
   }
 
-  public InputBuffer<T, S, X> withInitialUpdater(final ArrayFunction<S, RuntimeException> handler) {
+  public InputBuffer<R, S, X> withInitialUpdater(final ArrayFunction<S, RuntimeException> handler) {
     initialArrayUpdater = Optional.ofNullable(handler);
     return this;
   }
 
-  public InputBuffer<T, S, X> withUpdater(final ArrayStateConsumer<S> handler) {
+  public InputBuffer<R, S, X> withUpdater(final ArrayStateConsumer<S> handler) {
     arrayUpdater = handler;
     return this;
   }
 
-  public InputBuffer<T, S, X> withInitialUpdater(final ByteBufferFunction<S> handler) {
+  public InputBuffer<R, S, X> withInitialUpdater(final ByteBufferFunction<S> handler) {
     initialBufferUpdater = Optional.ofNullable(handler);
     return this;
   }
 
-  public InputBuffer<T, S, X> withUpdater(final ByteBufferBiConsumer<S> handler) {
+  public InputBuffer<R, S, X> withUpdater(final ByteBufferBiConsumer<S> handler) {
     bufferUpdater = Optional.ofNullable(handler);
     return this;
   }
 
-  public InputBuffer<T, S, X> withDoFinal(final FinalHandlerFunction<S, T, X> handler) {
+  public InputBuffer<R, S, X> withDoFinal(final FinalHandlerFunction<S, R, X> handler) {
     finalHandler = handler;
     return this;
   }
 
-  public InputBuffer<T, S, X> withSinglePass(final ArrayFunction<T, X> handler) {
+  public InputBuffer<R, S, X> withSinglePass(final ArrayFunction<R, X> handler) {
     singlePassArray = Optional.ofNullable(handler);
     return this;
   }
 
-  public InputBuffer<T, S, X> withStateCloner(final Function<S, S> cloner) {
+  public InputBuffer<R, S, X> withStateCloner(final Function<S, S> cloner) {
     stateCloner = Optional.ofNullable(cloner);
     return this;
   }
 
-  public InputBuffer<T, S, X> withInitialStateSupplier(final StateSupplier<S> supplier) {
+  public InputBuffer<R, S, X> withInitialStateSupplier(final StateSupplier<S> supplier) {
     stateSupplier = supplier;
     return this;
   }
 
   /**
-   * Copies all requested data from {@code arr} into {@link #buff} if an only if there is sufficient
+   * Copies all requested data from {@code arr} into {@link #buff} if and only if there is sufficient
    * space. Returns {@code true} if the data was copied.
    *
    * @return {@code true} if there was sufficient space in the buffer and data was copied.
@@ -158,7 +158,7 @@ public class InputBuffer<T, S, X extends Throwable> implements Cloneable {
   }
 
   /**
-   * Copies {@code val} into {@link #buff} if an only if there is sufficient space. Returns {@code
+   * Copies {@code val} into {@link #buff} if and only if there is sufficient space. Returns {@code
    * true} if the data was copied.
    *
    * @return {@code true} if there was sufficient space in the buffer and data was copied.
@@ -177,7 +177,7 @@ public class InputBuffer<T, S, X extends Throwable> implements Cloneable {
   }
 
   /**
-   * Copies all requested data from {@code src} into {@link #buff} if an only if there is sufficient
+   * Copies all requested data from {@code src} into {@link #buff} if and only if there is sufficient
    * space. Returns {@code true} if the data was copied.
    *
    * @return {@code true} if there was sufficient space in the buffer and data was copied.
@@ -222,8 +222,8 @@ public class InputBuffer<T, S, X extends Throwable> implements Cloneable {
     try {
       // We delegate to the equivalent array handler in any of these cases:
       // 1. This is not a direct ByteBuffer
-      // 2. firstData is true and we don't have any buffer handlers
-      // 3. firstData is false and we don't have a middleBuffer handler
+      // 2. firstData is true, and we don't have any buffer handlers
+      // 3. firstData is false, and we don't have a middleBuffer handler
       if (!src.isDirect()
           || (firstData && !initialBufferUpdater.isPresent() && !bufferUpdater.isPresent())
           || (!firstData && !bufferUpdater.isPresent())) {
@@ -290,7 +290,7 @@ public class InputBuffer<T, S, X extends Throwable> implements Cloneable {
     throw new AssertionError("Unreachable code. Cannot buffer even a single byte");
   }
 
-  public T doFinal() throws X {
+  public R doFinal() throws X {
     if (!firstData || !singlePassArray.isPresent()) {
       processBuffer(true);
       return finalHandler.apply(state);
@@ -304,12 +304,12 @@ public class InputBuffer<T, S, X extends Throwable> implements Cloneable {
    * (so, any values not passed in as arguments) may be incorrect and need to be fixed prior to use.
    */
   @Override
-  protected InputBuffer<T, S, X> clone() throws CloneNotSupportedException {
+  protected InputBuffer<R, S, X> clone() throws CloneNotSupportedException {
     if (state != null && !stateCloner.isPresent()) {
       throw new CloneNotSupportedException("No stateCloner configured");
     }
     @SuppressWarnings("unchecked")
-    final InputBuffer<T, S, X> clonedObject = (InputBuffer<T, S, X>) super.clone();
+    final InputBuffer<R, S, X> clonedObject = (InputBuffer<R, S, X>) super.clone();
 
     clonedObject.state = state != null ? stateCloner.get().apply(state) : null;
     clonedObject.buff = buff.clone();

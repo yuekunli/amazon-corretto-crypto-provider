@@ -94,7 +94,7 @@
         name** getAddressOfPtr() { return &PTR_NAME(name); }                                                           \
     }
 
-OPENSSL_auto(RSA);
+//OPENSSL_auto(RSA);
 OPENSSL_auto(PKCS8_PRIV_KEY_INFO);
 OPENSSL_auto(EC_GROUP);
 OPENSSL_auto(EC_POINT);
@@ -103,6 +103,92 @@ OPENSSL_auto(BN_CTX);
 OPENSSL_auto(EVP_MD_CTX);
 OPENSSL_auto(EVP_PKEY);
 OPENSSL_auto(EVP_PKEY_CTX);
+
+
+
+class RSA_auto
+{
+private:
+    RSA* pRSA;
+    void move(RSA_auto& other)
+    {
+        set(other.take());
+    }
+
+public:
+    RSA_auto(const RSA_auto&) = delete;
+    RSA_auto& operator=(const RSA_auto&) = delete;
+    RSA_auto& operator=(RSA_auto&& other)
+    {
+        move(other);
+        return *this;
+    }
+    RSA_auto(RSA_auto&& other)
+    {
+        move(other);
+    }
+    RSA_auto()
+    {
+        pRSA = 0;
+    }
+    static RSA_auto from(RSA* ptr)
+    {
+        RSA_auto tmp;
+        tmp.pRSA = ptr;
+        return tmp;
+    }
+    ~RSA_auto()
+    {
+        clear();
+    }
+    bool isInitialized()
+    {
+        return !!pRSA;
+    }
+    bool set(RSA* ptr)
+    {
+        clear();
+        pRSA = ptr;
+        return !!ptr;
+    }
+    RSA* take()
+    {
+        RSA* tmpPtr = pRSA;
+        pRSA = 0;
+        return tmpPtr;
+    }
+    void releaseOwnership()
+    {
+        pRSA = NULL;
+    }
+    void clear()
+    {
+        RSA_free(pRSA);
+        pRSA = NULL;
+    }
+    RSA* operator->()
+    {
+        return *this;
+    }
+    operator RSA* ()
+    {
+        if (!pRSA)
+        {
+            abort();
+        }
+        return pRSA;
+    }
+    RSA* get()
+    {
+        return pRSA;
+    }
+    RSA** getAddressOfPtr()
+    {
+        return &pRSA;
+    }
+};
+
+
 
 class OPENSSL_buffer_auto {
 private:
