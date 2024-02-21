@@ -194,6 +194,16 @@ abstract class EvpKeyFactory extends KeyFactorySpi {
         modulus = spec.getModulus().toByteArray();
         privateExponentArr = spec.getPrivateExponent().toByteArray();
 
+        /**
+         * OpenSSL requires public exponent must always be set when creating RSA key from user data.
+         * Theoretically, if I'm the party who has the private exponent of this RSA key pair, I must
+         * also have the public exponent i.e. I must be the one who initially generated this key pair.
+         * There is no reason for me to only have the private exponent.
+         * The caller should make sure if the private exponent is passed, so must the public exponent
+         * be passed in.
+         * TODO: Trace back to the caller, make sure when public exponent is present
+         */
+
         return new EvpRsaPrivateKey(
             rsa2Evp(
                 modulus,

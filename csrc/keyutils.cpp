@@ -1,6 +1,7 @@
 // Copyright Amazon.com Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 #include "keyutils.h"
+#include "bn.h"
 #include <openssl/ec.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
@@ -105,8 +106,7 @@ EVP_PKEY* der2EvpPrivateKey(
     const unsigned char* der,
     const int derLen,
     bool shouldCheckPrivate,
-    const char* javaExceptionClass
-)
+    const char* javaExceptionClass)
 {
     const unsigned char* der_mutable_ptr = der; // openssl modifies the input pointer
 
@@ -127,14 +127,8 @@ EVP_PKEY* der2EvpPrivateKey(
     }
 
     if (EVP_PKEY_base_id(pkey) == EVP_PKEY_RSA) {
-        BIGNUM* n;
-        BIGNUM* e;
-        BIGNUM* d;
-        BIGNUM* p;
-        BIGNUM* q;
-        BIGNUM* dmp1;
-        BIGNUM* dmq1;
-        BIGNUM* iqmp;
+        BIGNUM* n = NULL, * e = NULL, * d = NULL, * p = NULL, * q = NULL, * dmp1 = NULL, * dmq1 = NULL, * iqmp = NULL;
+        //BigNumObj n, e, d, p, q, dmp1, dmq1, iqmp;
 
         EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_N, &n);
         EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_E, &e);
@@ -147,7 +141,7 @@ EVP_PKEY* der2EvpPrivateKey(
 
         bool need_rebuild = false;
 
-        if (!e)
+        if (!e || BN_is_zero(e))
             need_rebuild = true;
 
         if (p && BN_is_zero(p)) {
@@ -171,24 +165,47 @@ EVP_PKEY* der2EvpPrivateKey(
             EVP_PKEY_CTX* rebuild_ctx = EVP_PKEY_CTX_new_from_name(NULL/*lib ctx*/, "RSA", NULL/*prop queue*/);
             EVP_PKEY* rebuild_pkey = NULL;
 
-            if (!e)  // public exponent must be present
-                e = BN_new();
-
             OSSL_PARAM_BLD* paramBuild = NULL;
             OSSL_PARAM* params = NULL;
 
             paramBuild = OSSL_PARAM_BLD_new();
 
+            BIGNUM* pub_exponent = NULL;
+            if (!e || BN_is_zero(e)) {  // public exponent must be present
+                static unsigned char pub_exponent_array[] = {
+                    0x01, 0x00, 0x01
+                };
+                pub_exponent = BN_bin2bn(pub_exponent_array, 3, NULL);
+                OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_E, pub_exponent);
+            }
+            else {
+                
+                OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_E, e);
+            }
+
             OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_N, n);
-            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_E, e);
             OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_D, d);
             params = OSSL_PARAM_BLD_to_param(paramBuild);
+
             EVP_PKEY_fromdata_init(rebuild_ctx);
             EVP_PKEY_fromdata(rebuild_ctx, &rebuild_pkey, EVP_PKEY_KEYPAIR, params);
+
             EVP_PKEY_CTX_free(rebuild_ctx);
             EVP_PKEY_free(pkey);
+
+            if (pub_exponent != NULL)
+                BN_free(pub_exponent);
+
             pkey = rebuild_pkey;
         }
+        BN_free(n);
+        BN_free(e);
+        BN_free(d);
+        BN_free(p);
+        BN_free(q);
+        BN_free(dmp1);
+        BN_free(dmq1);
+        BN_free(iqmp);
     }
     return pkey;
 }
@@ -222,10 +239,9 @@ bool checkKey(EVP_PKEY* key)
     int keyType = EVP_PKEY_base_id(key);
     bool result = false;
 
-    const RSA* rsaKey;
     const BIGNUM* p;
     const BIGNUM* q;
-    const EC_KEY* ecKey;
+    EVP_PKEY_CTX* ctx = NULL;
 
     switch (keyType) {
     case EVP_PKEY_RSA:
@@ -240,9 +256,9 @@ bool checkKey(EVP_PKEY* key)
         
         if (p && !BN_is_zero(p) && q && !BN_is_zero(q)) {
             //result = RSA_check_key(rsaKey) == 1;
-            EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_from_pkey(NULL/*lib ctx*/, key, NULL/*prop queue*/);
+            ctx = EVP_PKEY_CTX_new_from_pkey(NULL/*lib ctx*/, key, NULL/*prop queue*/);
             result = EVP_PKEY_private_check(ctx);
-            EVP_PKEY_CTX_free(ctx);
+            
         } else {
             // We don't have enough information to actually check the key
             result = true;
@@ -255,14 +271,15 @@ bool checkKey(EVP_PKEY* key)
     case EVP_PKEY_EC:
         //ecKey = EVP_PKEY_get0_EC_KEY(key);
         //result = EC_KEY_check_key(ecKey) == 1;
-        EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_from_pkey(NULL/*lib ctx*/, key, NULL/*prop queue*/);
+        ctx = EVP_PKEY_CTX_new_from_pkey(NULL/*lib ctx*/, key, NULL/*prop queue*/);
         result = EVP_PKEY_private_check(ctx);
-        EVP_PKEY_CTX_free(ctx);
+        
         break;
     default:
         // Keys we can't check, we just claim are fine, because there is nothing else we can do.
         result = true;
     }
+    EVP_PKEY_CTX_free(ctx);
     return result;
 }
 

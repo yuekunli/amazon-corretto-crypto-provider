@@ -15,6 +15,7 @@
 #include <openssl/encoder.h>
 #include <openssl/decoder.h>
 #include <openssl/core_names.h>
+#include <openssl/param_build.h>
 
 using namespace AmazonCorrettoCryptoProvider;
 
@@ -287,24 +288,37 @@ JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpKeyFactory_e
 
         EVP_PKEY_fromdata_init(pkey_ctx);
 
-        OSSL_PARAM params[7];
-        OSSL_PARAM* p = params;
+        OSSL_PARAM_BLD* incremental_params = NULL;
+        OSSL_PARAM* params = NULL;
+
+        incremental_params = OSSL_PARAM_BLD_new();
 
         if (sArr) {
             java_buffer priv_key_buff = java_buffer::from_array(env, sArr);
             size_t priv_key_buff_len = priv_key_buff.len();
             jni_borrow priv_key_borrow(env, priv_key_buff, "privkey");
 
-            *p++ = OSSL_PARAM_construct_octet_string(OSSL_PKEY_PARAM_PRIV_KEY, priv_key_borrow.data(), priv_key_buff_len);
-            *p = OSSL_PARAM_construct_end();
+            BIGNUM* priv_key = NULL;
+
+            priv_key = BN_bin2bn(priv_key_borrow.data(), priv_key_buff_len, NULL);
+
+            OSSL_PARAM_BLD_push_BN(incremental_params, OSSL_PKEY_PARAM_PRIV_KEY, priv_key);
+
+            params = OSSL_PARAM_BLD_to_param(incremental_params);
+
             EVP_PKEY_fromdata(pkey_ctx, &pkey, EVP_PKEY_KEYPAIR, params);
-            EVP_PKEY_keygen_init(pkey_ctx);  // not sure if this works
-            EVP_PKEY_generate(pkey_ctx, &pkey);
+
+            EVP_PKEY_set_int_param(pkey, OSSL_PKEY_PARAM_EC_INCLUDE_PUBLIC, 0);
+
             if (shouldCheckPrivate)
             {
                 int check_ret = EVP_PKEY_private_check(pkey_ctx);
                 // check check_ret
             }
+
+            // when building the parameters, BN is not copied, only its pointer is copied
+            // after calling EVP_PKEY_fromdata, BN is copied to PKEY, at this point, I can free BN
+            BN_free(priv_key);
         }
 
         if (wxArr && wyArr)
@@ -317,12 +331,26 @@ JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpKeyFactory_e
             size_t pub_key_y_len = pub_key_y.len();
             jni_borrow qy_borrow = jni_borrow(env, pub_key_y, "pubkeyy");
 
-            *p++ = OSSL_PARAM_construct_BN(OSSL_PKEY_PARAM_EC_PUB_X, qx_borrow.data(), pub_key_x_len);
-            *p++ = OSSL_PARAM_construct_BN(OSSL_PKEY_PARAM_EC_PUB_Y, qy_borrow.data(), pub_key_y_len);
-            *p = OSSL_PARAM_construct_end();
+            size_t pub_key_len = pub_key_x_len + pub_key_y_len + 1;
+            unsigned char* ptr = (unsigned char*)malloc(pub_key_len);
+            ptr[0] = 0x04; // uncompressed
+            memcpy(ptr + 1, qx_borrow.data(), pub_key_x_len);
+            memcpy(ptr + 1 + pub_key_x_len, qy_borrow.data(), pub_key_y_len);
+
+            OSSL_PARAM_BLD_push_octet_string(incremental_params, OSSL_PKEY_PARAM_PUB_KEY, ptr, pub_key_len);
+            OSSL_PARAM_BLD_push_utf8_string(incremental_params, OSSL_PKEY_PARAM_EC_POINT_CONVERSION_FORMAT, "uncompressed", 0);
+            params = OSSL_PARAM_BLD_to_param(incremental_params);
 
             EVP_PKEY_fromdata(pkey_ctx, &pkey, EVP_PKEY_PUBLIC_KEY, params);
+
+            free(ptr);
         }
+
+        OSSL_PARAM_free(params);
+        OSSL_PARAM_BLD_free(incremental_params);
+        EVP_PKEY_free(params_as_pkey);
+        EVP_PKEY_CTX_free(pkey_ctx);
+
         return reinterpret_cast<jlong>(pkey);
     }
     catch (java_ex& ex) {
@@ -403,7 +431,7 @@ JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpKey_get
         result = env->NewByteArray(derLen);
         env->SetByteArrayRegion(result, 0, derLen, der);
         OSSL_ENCODER_CTX_free(ectx);
-        // der is wrapped in an object whose destructor will take care of freeing memory
+        // der is wrapped in OPENSSL_buffer_auto whose destructor will take care of freeing memory
     }
     catch (java_ex& ex) {
         ex.throw_to_java(pEnv);
@@ -916,7 +944,6 @@ JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpKeyFactory_r
 }
 
 
-
 JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpKeyFactory_rsa2Evp_ossl3(
     JNIEnv* pEnv,
     jclass,
@@ -974,6 +1001,8 @@ JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpKeyFactory_r
         }
         else if (privateExponentArr) {
 
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_D, d);
+
             /**
             * The RSA public exponent “e” value. This value must always be set 
             * when creating a raw key using EVP_PKEY_fromdata(3). Note that when
@@ -981,18 +1010,27 @@ JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpKeyFactory_r
             * blinding purposes to prevent timing attacks.
             */
 
+            // Calculating public exponet from the private exponent and the modulus is impossible.
+            // In order to do so, I need the primes (p and q) that multiply to n (n = pq)
+            // NO_BLINDING is deprecated in 3.0, which means I must find the public exponent.
+            
+            // This is the most controversial part of this project, I'm manually setting public exponent to 65537
+
+            BIGNUM* pub_exponent = NULL;
             if (!publicExponentArr)
             {
-                e.releaseOwnership();
-                e = bn_zero();
-            }
+                static unsigned char pub_expo[] = {
+                    0x01, 0x00, 0x01
+                };
 
-            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_E, e);
-            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_D, d);
+                pub_exponent = BN_bin2bn(pub_expo, 3, NULL);
+                OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_E, pub_exponent);
+            }
 
             params = OSSL_PARAM_BLD_to_param(paramBuild);
             EVP_PKEY_fromdata_init(ctx);
             EVP_PKEY_fromdata(ctx, &pkey, EVP_PKEY_KEYPAIR, params);
+            BN_free(pub_exponent);
         }
 
         e.releaseOwnership();
@@ -1004,6 +1042,10 @@ JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpKeyFactory_r
         dmp1.releaseOwnership();
         dmq1.releaseOwnership();
 
+        OSSL_PARAM_BLD_free(paramBuild);
+        OSSL_PARAM_free(params);
+
+        return reinterpret_cast<jlong>(pkey);
     }
     catch (java_ex& ex)
     {
@@ -1088,7 +1130,7 @@ JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaPriv
     return result;
 }
 
-#include <openssl/param_build.h>
+
 JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaPrivateKey_encodeRsaPrivateKey_ossl3(
     JNIEnv* pEnv, jclass, jlong keyHandle)
 {
@@ -1102,52 +1144,74 @@ JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaPriv
         OPENSSL_buffer_auto der;
 
         BIGNUM* e = NULL, * d = NULL, * n = NULL;
-
+        OSSL_ENCODER_CTX* encoder_ctx = NULL;
         size_t derLen = 0;
 
         int selection = EVP_PKEY_KEYPAIR;
-
 
         EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_E, &e);
         EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_D, &d);
         EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_N, &n);
 
+#ifdef FILL_RSA_KEY_WHEN_PUBLIC_EXPONENT_IS_MISSING
+
         if (BN_null_or_zero(e))  // LiYK: I doubt this is necessary, if public exponent is missing, 
         {
             EVP_PKEY_CTX* filled_key_ctx = EVP_PKEY_CTX_new_from_pkey(NULL/*lib ctx*/, pkey, NULL/*prop queue*/);
             EVP_PKEY* filled_pkey;
-            //EVP_PKEY_keygen_init(filled_key_ctx);
-            //EVP_PKEY_generate(filled_key_ctx, &filled_pkey);
-
             OSSL_PARAM_BLD* paramBuild = NULL;
             OSSL_PARAM* params = NULL;
+            BIGNUM* pub_exponent = NULL, *p = NULL, *q = NULL, *dmp1 = NULL, *dmq1 = NULL, *iqmp = NULL;
 
             paramBuild = OSSL_PARAM_BLD_new();
-            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_E, BN_new());
+            static unsigned char pub_exponent_array[] = {
+                0x01, 0x00, 0x01
+            };
+            pub_exponent = BN_bin2bn(pub_exponent_array, 3, NULL);
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_E, pub_exponent);
+            
+            p = BN_new();
+            q = BN_new();
+            dmp1 = BN_new();
+            dmq1 = BN_new();
+            iqmp = BN_new();
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_FACTOR1, p);
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_FACTOR2, q);
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_EXPONENT1, dmp1);
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_EXPONENT2, dmq1);
+            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_COEFFICIENT1, iqmp);
 
-            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_FACTOR1, BN_new());
-            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_FACTOR2, BN_new());
-            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_EXPONENT1, BN_new());
-            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_EXPONENT2, BN_new());
-            OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_COEFFICIENT1, BN_new());
             params = OSSL_PARAM_BLD_to_param(paramBuild);
+
             EVP_PKEY_fromdata_init(filled_key_ctx);
             EVP_PKEY_fromdata(filled_key_ctx, &filled_pkey, EVP_PKEY_KEYPAIR, params);
 
-            OSSL_ENCODER_CTX* encoder_ctx = OSSL_ENCODER_CTX_new_for_pkey(filled_pkey, selection, "DER", NULL/*lib ctx*/, NULL/*prop queue*/);
-
+            encoder_ctx = OSSL_ENCODER_CTX_new_for_pkey(filled_pkey, selection, "DER", NULL/*lib ctx*/, NULL/*prop queue*/);
             OSSL_ENCODER_to_data(encoder_ctx, &der, &derLen);
 
+            BN_free(pub_exponent);
+            BN_free(p);
+            BN_free(q);
+            BN_free(dmp1);
+            BN_free(dmq1);
+            BN_free(iqmp);
+            EVP_PKEY_CTX_free(filled_key_ctx);
+            EVP_PKEY_free(filled_pkey);
+            OSSL_PARAM_BLD_free(paramBuild);
+            OSSL_PARAM_free(params);
         }
         else
-        {
-            OSSL_ENCODER_CTX* encoder_ctx = OSSL_ENCODER_CTX_new_for_pkey(pkey, selection, "DER", NULL/*lib ctx*/, NULL/*prop queue*/);
+#endif
 
+        {
+            encoder_ctx = OSSL_ENCODER_CTX_new_for_pkey(pkey, selection, "DER", NULL/*lib ctx*/, NULL/*prop queue*/);
             OSSL_ENCODER_to_data(encoder_ctx, &der, &derLen);
         }
-
+        
         result = env->NewByteArray(derLen);
         env->SetByteArrayRegion(result, 0, derLen, der);
+        OSSL_ENCODER_CTX_free(encoder_ctx);
+        return result;
     }
     catch (java_ex& ex) {
         ex.throw_to_java(pEnv);

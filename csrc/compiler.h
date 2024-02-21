@@ -6,42 +6,61 @@
 #include "config.h"
 #include <stdint.h>
 
-// __cplusplus is >= 201103L on C++11 or newer compilers. // LiYK: MSVC also defines _cplusplus, but we're certain in compiling with C++11 or higher
-
-#define HAVE_CPP11
-
-// DELETE_IMPLICIT is an alias for the '= delete' feature in C++11.
-#define DELETE_IMPLICIT = delete
-#define MOVE(x)         std::move(x)
+// __cplusplus is >= 201103L on C++11 or newer compilers. 
 
 
+// LiYK:  __cplusplus is a standard predefined macro, 
+// but MSVC has unreliable support for that macro, 
+// in fact, it's set to 199711L even on latest MSVC
+
+#if __cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG > 201103L)
+	#define HAVE_CPP11
+
+	// DELETE_IMPLICIT is an alias for the '= delete' feature in C++11.
+	#define DELETE_IMPLICIT = delete
+	#define MOVE(x)         std::move(x)
+
+#else
+
+	// Just in case our compiler doesn't support it, we'll allow it to be removed
+	// for compilers that don't support it. In this case, if we attempt to use it,
+	// we'll get a mysterious link error as we declare but don't define the
+	// ctors/operators in question.
+
+	#define DELETE_IMPLICIT
+
+	// Define nullptr for ancient compilers
+	#define nullptr NULL
+	#define MOVE(x) (x)
+
+#endif
 
 #ifdef HAVE_ATTR_COLD
-#define COLD __attribute__((cold))  // GCC attribute, inform the compiler that a function is unlikely executed
+	#define COLD __attribute__((cold))  // GCC attribute, inform the compiler that a function is unlikely executed
 #else
-#define COLD
+	#define COLD
 #endif
 
 #ifdef HAVE_ATTR_NORETURN
-#define NORETURN __attribute__((noreturn)) // GCC attribute, avoid spurious warnings of uninitialized variables
+	#define NORETURN __attribute__((noreturn)) // GCC attribute, avoid spurious warnings of uninitialized variables
 #else
-#define NORETURN
+	#define NORETURN
 #endif
 
 #ifdef HAVE_ATTR_ALWAYS_INLINE
-#define ALWAYS_INLINE __attribute__((always_inline))
+	#define ALWAYS_INLINE __attribute__((always_inline))
 #else
-#define ALWAYS_INLINE
+	#define ALWAYS_INLINE
 #endif
 
 #ifdef HAVE_ATTR_NOINLINE
-#define NOINLINE __attribute__((noinline))
+	#define NOINLINE __attribute__((noinline))
 #else
-#define NOINLINE
+	#define NOINLINE
 #endif
 
 #ifndef HAVE_NOEXCEPT
-#define noexcept throw()
+	#define noexcept throw()
 #endif
 
 // See http://www.decompile.com/cpp/faq/file_and_line_error_string.htm
@@ -57,6 +76,9 @@
 #define STRINGIFY_INTERNAL(x) #x
 #define STRINGIFY(x)          STRINGIFY_INTERNAL(x)
 
+
+//#define likely(x)   __builtin_expect(!!(x), true)
+//#define unlikely(x) __builtin_expect(!!(x), false)
 #define likely(x)   x
 #define unlikely(x) x
 
@@ -71,7 +93,7 @@
 
 
 /**
- * LiYK: If there is an if clause like this:
+ * LiYK: If there is an "if" clause like this:
  *     if (likely(...)) {
  * 
  *     }
@@ -79,18 +101,18 @@
  *     if (...) {
  * 
  *     }
- * The same applies to "unlikely", just pretend it's there.
+ * The same applies to "unlikely", just pretend it isn't there.
  * These two GCC built-in functions help arrange the location of assembly instructions
  * so that the CPU can fetch the more likely next instruction faster.
- *     
+ * MSVC has no equivalent directives.
 */
 
-#ifndef SIZE_MAX
-#ifdef __SIZE_MAX__
-#define SIZE_MAX __SIZE_MAX__
-#else
-#define SIZE_MAX (size_t(-1))
-#endif
+#ifndef SIZE_MAX  // stdint.h
+	#ifdef __SIZE_MAX__
+		#define SIZE_MAX __SIZE_MAX__
+	#else
+		#define SIZE_MAX (size_t(-1))
+	#endif
 #endif
 
 #endif

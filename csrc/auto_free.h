@@ -9,6 +9,10 @@
 //#include <openssl/mem.h>
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
+#include <openssl/encoder.h>
+#include <openssl/decoder.h>
+#include <openssl/params.h>
+#include <openssl/param_build.h>
 
 // These macros allow us to easily defined stack managed versions of various Openssl structures.
 // Some objects will require custom implementations (such as unsigned char* and BN).
@@ -189,7 +193,136 @@ public:
 };
 
 
+template<typename T>
+class ossl_auto
+{
+private:
+    T* ptr;
+    void move(ossl_auto<T>& other);
+public:
+    ossl_auto(const ossl_auto<T>&) = delete;
+    ossl_auto<T>& operator= (const ossl_auto<T>&) = delete;
+    ossl_auto<T>& operator=(ossl_auto<T>&& other)
+    {
+        move(other);
+        return *this;
+    }
+    ossl_auto(ossl_auto<T>&& other)
+    {
+        move(other);
+    }
+    ossl_auto() :ptr(NULL) {}
 
+    static ossl_auto from(T* p)
+    {
+        ossl_auto<T> tmp;
+        tmp.ptr = p;
+        return tmp;
+    }
+    ~ossl_auto()
+    {
+        clear();
+    }
+    bool isInitialized()
+    {
+        return (ptr != NULL);
+    }
+    bool set(T* p)
+    {
+        clear();
+        ptr = p;
+        return (ptr != NULL);
+    }
+    T* take()
+    {
+        T* tmp = ptr;
+        ptr = NULL;
+        return tmp;
+    }
+    void releaseOwnership()
+    {
+        ptr = NULL;
+    }
+    void clear()
+    {
+        throw_java_ex(EX_RUNTIME_CRYPTO, "Reached generic clear for auto destruct");
+    }
+    T* operator->()
+    {
+        return *this;
+    }
+    operator T* ()
+    {
+        if (ptr == NULL)
+            abort();
+
+        return ptr;
+    }
+    T* get()
+    {
+        return ptr;
+    }
+    T** getAddressOfPtr()
+    {
+        return &ptr;
+    }
+
+};
+
+
+template<>
+void ossl_auto<EVP_PKEY>::clear()
+{
+    EVP_PKEY_free(ptr);
+    ptr = NULL;
+}
+
+template<>
+void ossl_auto<EVP_PKEY_CTX>::clear()
+{
+    EVP_PKEY_CTX_free(ptr);
+    ptr = NULL;
+}
+
+template<>
+void ossl_auto<EVP_MD_CTX>::clear()
+{
+    EVP_MD_CTX_free(ptr);
+    ptr = NULL;
+}
+
+template<>
+void ossl_auto<OSSL_ENCODER_CTX>::clear()
+{
+    OSSL_ENCODER_CTX_free(ptr);
+    ptr = NULL;
+}
+
+template<>
+void ossl_auto<OSSL_DECODER_CTX>::clear()
+{
+    OSSL_DECODER_CTX_free(ptr);
+    ptr = NULL;
+}
+
+template<>
+void ossl_auto<OSSL_PARAM>::clear()
+{
+    OSSL_PARAM_free(ptr);
+    ptr = NULL;
+}
+
+template<>
+void ossl_auto<OSSL_PARAM_BLD>::clear()
+{
+    OSSL_PARAM_BLD_free(ptr);
+    ptr = NULL;
+}
+
+
+// LiYK: this class doesn't have a constructor that specifies a size so that, when instantiating, constructor allocates memory.
+// This is because this class is usually used when the address of the pointer is passed to a function where memory is allocated,
+// and the pointer is made to point at that memory.
 class OPENSSL_buffer_auto {
 private:
     OPENSSL_buffer_auto(const OPENSSL_buffer_auto&) DELETE_IMPLICIT;

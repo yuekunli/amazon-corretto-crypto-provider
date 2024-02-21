@@ -48,6 +48,13 @@ jbyteArray vecToArray(raii_env& env, const std::vector<uint8_t, SecureAlloc<uint
  * 
 */
 
+/**
+* LiYK: java_buffer actually has get_bytes and put_bytes member functions. We usually see java_buffer and jni_borrow used in tandem,
+* but that is not absolutely necessary. I can just use java_buffer and get_bytes and put_bytes without creating jni_borrow.
+* When I use get_bytes / put_butes if there is no other jni_borrow on the env pointer and its underlying memory is from java array,
+* get_bytes / put_bytes won't use pinning (i.e. Get/ReleasePrivimiteArrayCritical)
+*/
+
 class java_buffer {
 private:
     jbyteArray m_array;
@@ -470,7 +477,7 @@ inline void java_buffer::put_bytes(raii_env& env, const uint8_t* src, size_t off
     }
     check_bounds(offset, len);
 
-    if (env.is_locked() || m_direct_buffer) {
+    if (env.is_locked() || m_direct_buffer) {  // if is_locked, other java_buffer (from java array) is being accessed by jni_borrow, native code is in a critical section, must not call any other JNI functions
         jni_borrow borrow(env, *this, "put_bytes");
         memcpy(borrow + offset, src, len);
     } else {
@@ -486,6 +493,20 @@ inline void java_buffer::put_bytes(raii_env& env, const uint8_t* src, size_t off
  *
  * T must have a trivial default constructor and be trivially copyable.
  */
+
+/**
+* LiYK: This one is almost the same as jni_borrow.
+* Differences:
+* (1). When dealing with java array, bounce_buffer doesn't use pinning (i.e. doesn't use Get/ReleasePrimitiveArrayCritical)
+* (2). bounce_buffer doesn't deal with a consecutive block of data, rather, it deals with a C++ object whose content is stored in a block of memory.
+*      This bounce_buffer basically restores the object from the opaque memory and later writes to opaque memory again.
+*      This is basically the simplest serialization/deserialization operation.
+*      This is why the template parameter T must be travially copyable, because the deserialization process is just memory copy
+* (3). When jni_borrow is created, the underlying memory is not read yet, only pointers are saved.
+*      When bounce_buffer is created, the memory is immediately read and deserialized into object of type T, when bounce_buffer is destructed,
+*      object of type T is written back to the underlying memory.
+*/
+
 template <typename T> class bounce_buffer {
 private:
 #ifdef HAVE_IS_TRIVIALLY_COPYABLE
@@ -631,8 +652,14 @@ public:
     void zeroize() { secureZero(&m_storage, sizeof(m_storage)); }
 };
 
+
+
 // Please follow the guidelines outlined in {Get,Release}PrimitiveArrayCritical when using this class:
 // https://docs.oracle.com/javase/8/docs/technotes/guides/jni/spec/functions.html#GetPrimitiveArrayCritical_ReleasePrimitiveArrayCritical
+
+// LiYK: this is no different than creating java_buffer and then creating jni_borrow out of java_buffer,
+// why using a separate class? Or what is the difference?
+
 class JByteArrayCritical {
 public:
     JByteArrayCritical(JNIEnv* env, jbyteArray jarray);

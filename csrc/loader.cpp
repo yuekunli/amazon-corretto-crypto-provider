@@ -35,7 +35,7 @@ void initialize()
     OpenSSL_add_all_digests();
 
     // seed the PRNG
-    RAND_poll();
+    //RAND_poll(); // LiYK: manual seeding is not necessary
 }
 
 }

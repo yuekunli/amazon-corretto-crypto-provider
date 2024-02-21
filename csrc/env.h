@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <vector>
 #include <string>
+#include <limits>
 
 #ifdef HAVE_IS_TRIVIALLY_COPYABLE
 #include <type_traits>
@@ -293,7 +294,8 @@ template <class T> struct SecureAlloc {
 
     T* allocate(std::size_t n)
     {
-        if (n > SIZE_MAX / sizeof(T)) {
+        //if (n > SIZE_MAX / sizeof(T)) {
+        if (n > (std::numeric_limits<size_t>::max() / sizeof(T))) {
             throw std::bad_alloc();
         }
         T* result = static_cast<T*>(::operator new(n * sizeof(T)));
@@ -304,7 +306,7 @@ template <class T> struct SecureAlloc {
         }
     }
 
-    size_t max_size() const noexcept { return SIZE_MAX / sizeof(T); }
+    size_t max_size() const noexcept { return /*SIZE_MAX*/ std::numeric_limits<size_t>::max() / sizeof(T); }
 
     T* address(T& x) const noexcept { return std::allocator<T>::address(x); }
 
