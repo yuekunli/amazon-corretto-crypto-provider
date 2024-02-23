@@ -48,8 +48,8 @@ JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpKey_enc
         raii_env env(pEnv);
 
         EVP_PKEY* key = reinterpret_cast<EVP_PKEY*>(keyHandle);
-        OPENSSL_buffer_auto der;
-
+        //OPENSSL_buffer_auto der;
+        ossl_auto<unsigned char> der;
         // This next line allocates memory
         int derLen = i2d_PUBKEY(key, &der);
         CHECK_OPENSSL(derLen > 0);
@@ -78,8 +78,8 @@ JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpKey_enc
         raii_env env(pEnv);
 
         EVP_PKEY* key = reinterpret_cast<EVP_PKEY*>(keyHandle);
-        OPENSSL_buffer_auto der;
-
+        //OPENSSL_buffer_auto der;
+        ossl_auto<unsigned char>der;
         PKCS8_PRIV_KEY_INFO_auto pkcs8 = PKCS8_PRIV_KEY_INFO_auto::from(EVP_PKEY2PKCS8(key));
         CHECK_OPENSSL(pkcs8.isInitialized());
 
@@ -408,7 +408,8 @@ JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpKey_get
         raii_env env(pEnv);
 
         EVP_PKEY* key = reinterpret_cast<EVP_PKEY*>(keyHandle);
-        OPENSSL_buffer_auto der;
+        //OPENSSL_buffer_auto der;
+        ossl_auto<unsigned char>der;
         OSSL_ENCODER_CTX* ectx = NULL;
         int keyNid = EVP_PKEY_base_id(key);
         CHECK_OPENSSL(keyNid);
@@ -1141,8 +1142,8 @@ JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpRsaPriv
 
         EVP_PKEY* pkey = reinterpret_cast<EVP_PKEY*>(keyHandle);
 
-        OPENSSL_buffer_auto der;
-
+        //OPENSSL_buffer_auto der;
+        ossl_auto<unsigned char>der;
         BIGNUM* e = NULL, * d = NULL, * n = NULL;
         OSSL_ENCODER_CTX* encoder_ctx = NULL;
         size_t derLen = 0;

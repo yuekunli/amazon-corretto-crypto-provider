@@ -1,0 +1,84 @@
+Visual Studio boiler plate:
+
+	framework.h
+	pch.h
+	pch.cpp
+
+
+Infrastructure:
+
+	auto_free.h            ossl_auto, OPENSSL_buffer_auto
+	buffer.cpp             vecToArray, java_buffer, jni_borrow, JByteArrayCritical
+	buffer.h               vecToArray, java_buffer, jni_borrow, bounce_buffer, JByteArrayCritical
+	compiler.h             Macros
+	config.h               Macros
+	env.cpp                trace, java_ex, throw_exceptions, raii_env,
+	env.h                  trace, java_ex, throw exceptions, CHECK_OPENSSL, raii_env, jni_string, SecureAlloc
+	util.cpp               retrieve OpenSSL error message
+	util.h                 java class path, Host<-->BigEndien, retrieve OpenSSL error message, secureZero, SecureBuffer fast_xor, check_bounds
+	util_class.cpp         get native buffer offset, get EVP MD, get EVP MD size
+
+
+Library:
+
+	loader.cpp
+
+
+Random Number Generate:
+
+	libcrypto_rng.cpp
+
+
+BIGNUM:
+
+	bn.cpp
+	bn.h
+
+
+Symmetric Cipher:
+
+	aes_gcm.cpp
+	aes_kwp.cpp
+	aes_xts.cpp
+
+
+Hash:
+
+	evp_md5.cpp
+	evp_sha1.cpp
+	evp_sha256.cpp
+	evp_sha384.cpp
+	evp_sha512.cpp
+
+Mac:
+
+	hmac.cpp
+
+
+Key Management:
+
+	hkdf.cpp
+	agreement.cpp
+
+
+Public Key:
+
+	java_evp_keys.cpp
+	keyutils.cpp
+	keyutils.h
+	rsa_cipher.cpp
+	rsa_gen.cpp
+	ec_gen.cpp
+	ec_utils.cpp
+	sign.cpp
+
+Testing:
+
+	fips_kat_self_test.cpp       BORINGSSL test
+	
+	test_keyutils.cpp            C++ level test
+	test_utils.h                 macro test framework for C++ level test
+
+	test_hooks.cpp               Java level test
+
+	

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #define _DEFAULT_SOURCE // for getentropy
 
-#include "config.h"
+//#include "config.h"
 
 #include <openssl/evp.h>
 #include <openssl/rand.h>

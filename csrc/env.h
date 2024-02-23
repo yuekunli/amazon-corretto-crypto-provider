@@ -245,6 +245,11 @@ public:
 };
 
 // Allows us to use C++ RAII for JNI strings.
+
+// LiYK: this class is not widely used in this project. In fact, jstring is not
+// widely used either. This class mostly servers as a wrapper for jstring (using
+// the destructor to call Release). So if jstring is not used much, of course
+// this class is not used much.
 class jni_string {
 private:
     jstring java_str;
@@ -252,6 +257,11 @@ private:
 
 public:
     const char* native_str;
+    // LiYK: this is const char*, how do I modify elements in the string?
+    // Maybe elements in a string (passed down from java) are not meant to be modified.
+    // Maybe they should be treated as immutable, and if I really want to modify them
+    // I should instantiate a new string.
+    // A hack to really modify this is to use const_cast to throw away the constness of this pointer.
 
     operator const char*() const { return native_str; }
 
@@ -320,7 +330,7 @@ template <class T> struct SecureAlloc {
         ::operator delete(p);
     }
 
-    void construct(T* p, const T& val) { new (p) T(val); }  // LiYK: use "val" to initialize a new object of T, and then assign the address of the object to 'p'
+    void construct(T* p, const T& val) { new (p) T(val); }  // LiYK: use "val" to initialize a new object of T, and then assign the address of the object to 'p'. (operator new with placement)
 
     void destroy(T* p) noexcept { p->~T(); }
 };

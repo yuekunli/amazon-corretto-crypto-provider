@@ -77,29 +77,14 @@
 #define STRINGIFY(x)          STRINGIFY_INTERNAL(x)
 
 
-//#define likely(x)   __builtin_expect(!!(x), true)
-//#define unlikely(x) __builtin_expect(!!(x), false)
-#define likely(x)   x
-#define unlikely(x) x
-
-
-#if defined (_MSC_VER)
-#define FORCE_INLINE1 __inline
-#define FORCE_INLINE2
-#else
-#define FORCE_INLINE1
-#define FORCE_INLINE2 __attribute__((always_inline))
-#endif
-
-
 /**
  * LiYK: If there is an "if" clause like this:
  *     if (likely(...)) {
- * 
+ *
  *     }
  * just treat it as if "likely" isn't there at all, like this:
  *     if (...) {
- * 
+ *
  *     }
  * The same applies to "unlikely", just pretend it isn't there.
  * These two GCC built-in functions help arrange the location of assembly instructions
@@ -107,12 +92,32 @@
  * MSVC has no equivalent directives.
 */
 
-#ifndef SIZE_MAX  // stdint.h
+#ifdef __GNUC__
+	#define likely(x)   __builtin_expect(!!(x), true)
+	#define unlikely(x) __builtin_expect(!!(x), false)
+#else
+	#define likely(x)   x
+	#define unlikely(x) x
+#endif
+
+#if defined (_MSC_VER)
+	#define FORCE_INLINE1 __inline
+	#define FORCE_INLINE2
+#else
+	#define FORCE_INLINE1
+	#define FORCE_INLINE2 __attribute__((always_inline))
+#endif
+
+
+
+
+#ifndef SIZE_MAX  // stdint.h  this is available since C++11
 	#ifdef __SIZE_MAX__
 		#define SIZE_MAX __SIZE_MAX__
 	#else
 		#define SIZE_MAX (size_t(-1))
 	#endif
 #endif
+
 
 #endif

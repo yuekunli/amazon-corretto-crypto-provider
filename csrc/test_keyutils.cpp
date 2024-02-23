@@ -212,7 +212,7 @@ void test_deserialize_extra_data()
     }
 }
 
-} // anon namespace
+} // anonymous namespace
 
 int main()
 {

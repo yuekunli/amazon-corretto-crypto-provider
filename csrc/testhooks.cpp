@@ -6,6 +6,37 @@
 
 using namespace AmazonCorrettoCryptoProvider;
 
+
+namespace {
+    void check_get_result(uint8_t* destbuf, int offset, int off2, int len2)
+    {
+        for (int i = 0; i < len2; i++) {
+            uint8_t expected = i + offset + off2;
+            if (destbuf[i] != (uint8_t)(i + offset + off2)) {
+                char* message = NULL;
+                int rv = asprintf(&message, "Bad value in input array; i=%d val=%02x expect=%02x", i, destbuf[i] & 0xFFU,
+                    (unsigned int)expected);
+                if (rv == -1) {
+                    throw_java_ex("java/lang/AssertionError",
+                        "Bad value in input array; alloation failure when formatting error message");
+                } else {
+                    std::string str(message);
+                    free(message);
+                    throw_java_ex("java/lang/AssertionError", str);
+                }
+            }
+        }
+    }
+
+    void init_for_put(uint8_t* buf, size_t len)
+    {
+        for (size_t i = 0; i < len; i++) {
+            buf[i] = 100 + i;
+        }
+    }
+}
+
+
 JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_test_NativeTestHooks_throwException(
     JNIEnv* pEnv, jclass)
 {
@@ -13,38 +44,10 @@ JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_test_NativeTestH
         raii_env env(pEnv);
 
         throw_java_ex("java/lang/IllegalArgumentException", "Test exception message");
-    } catch (java_ex& ex) {
+    }
+    catch (java_ex& ex) {
         ex.throw_to_java(pEnv);
     }
-}
-
-namespace {
-void check_get_result(uint8_t* destbuf, int offset, int off2, int len2)
-{
-    for (int i = 0; i < len2; i++) {
-        uint8_t expected = i + offset + off2;
-        if (destbuf[i] != (uint8_t)(i + offset + off2)) {
-            char* message = NULL;
-            int rv = asprintf(&message, "Bad value in input array; i=%d val=%02x expect=%02x", i, destbuf[i] & 0xFFU,
-                (unsigned int)expected);
-            if (rv == -1) {
-                throw_java_ex("java/lang/AssertionError",
-                    "Bad value in input array; alloation failure when formatting error message");
-            } else {
-                std::string str(message);
-                free(message);
-                throw_java_ex("java/lang/AssertionError", str);
-            }
-        }
-    }
-}
-
-void init_for_put(uint8_t* buf, size_t len)
-{
-    for (size_t i = 0; i < len; i++) {
-        buf[i] = 100 + i;
-    }
-}
 }
 
 JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_test_NativeTestHooks_getBytes(

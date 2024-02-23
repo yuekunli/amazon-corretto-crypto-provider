@@ -79,6 +79,11 @@ public:
         return m_pBN;
     }
 
+    BIGNUM** operator&()
+    {
+        return &m_pBN;
+    }
+
     void releaseOwnership() { m_pBN = NULL; }
 
     static BigNumObj fromJavaArray(raii_env& env, jbyteArray array)

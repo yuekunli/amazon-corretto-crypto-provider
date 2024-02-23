@@ -4,7 +4,7 @@
 #define UTIL_H 1
 
 #include "compiler.h"
-#include "config.h"
+//#include "config.h"
 #include "generated-headers.h"
 #include <openssl/bn.h>
 #include <openssl/ec.h>
