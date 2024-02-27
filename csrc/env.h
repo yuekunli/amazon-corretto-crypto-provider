@@ -4,7 +4,6 @@
 #define ACCP_ENV_H 1
 
 #include "compiler.h"
-#include "config.h"
 #include "util.h"
 #include <cassert>
 #include <cstdlib> // abort()
@@ -24,10 +23,6 @@
 #include <openssl/err.h>
 #endif
 
-#ifndef UINT64_MAX
-#define UINT64_MAX (~((uint64_t)0))
-#endif
-
 namespace AmazonCorrettoCryptoProvider {
 void capture_trace(std::vector<void*>& trace) COLD;
 void format_trace(std::ostringstream&, const std::vector<void*>& trace) COLD;
@@ -37,17 +32,9 @@ inline void capture_trace(std::vector<void*>& trace) { }
 inline void format_trace(std::ostringstream&, const std::vector<void*>& trace) { }
 #endif
 
-/**
- * C++ representation of a Java exception to be thrown. Constructing and
- * C++-throwing java_ex objects does not result in any JNI calls, and can
- * therefore be done while buffer locks are held.
- */
+
 class java_ex {
 private:
-    // When an exception is thrown from java, we remove it from the pending-exception
-    // state and stash it here, thus allowing us to make other java calls while unwinding the stack.
-    // In this case this field will be non-null and contain the actual exception object to
-    // rethrow
     jthrowable m_java_exception;
 
     const char* m_java_classname;
@@ -62,9 +49,7 @@ private:
 
 public:
     java_ex(jthrowable exception) COLD : m_java_exception(exception), m_java_classname(nullptr), m_message() { }
-    // LiYK: this ctor is just used in a few places, usually after calling SetByteArrayRegion or GetByteArrayRegion,
-    // the other two constructors are used rather more often. So although this class is called java_ex, 
-    // it's more often used to represent an exception incurred in this C level or OpenSSL level not in Java level.
+
 
     java_ex(const char* java_classname, const char* message) COLD : m_java_exception(nullptr),
                                                                     m_java_classname(java_classname),
@@ -80,62 +65,25 @@ public:
         capture_trace();
     }
 
-    /**
-     * Constructs an exception based on the openssl error code.
-     * Arguments:
-     *  ex_class - the classname of the exception to throw
-     *  default_string - A string to use for the exception message if the openssl error is unavailable
-     */
     static java_ex from_openssl(const char* ex_class, const char* default_string) COLD;
 
-    /**
-     * Throws a java_ex that represents the fact that a Java exception has _already_ been thrown.
-     * The java exception will be removed from the JVM's pending exception state, so that JNI
-     * calls can be safely performed while unwinding the stack.
-     *
-     * Normally you should call raii_env.rethrow_java_exception instead; the variant on raii_env
-     * checks the pending exception flag first.
-     */
-    static void rethrow_java_exception(JNIEnv* pEnv) NORETURN COLD;
+    NORETURN1 static void rethrow_java_exception(JNIEnv* pEnv) NORETURN2 COLD;
 
-    /**
-     * Sets the pending JNI exception based on this java_ex object.
-     *
-     * All information in the java_ex object is _copied_ into the java exception
-     * state, so the java_ex object can be immediately destroyed afterward.
-     *
-     * Note that this takes a raw JNIEnv pointer rather than an raii_env, to emphasize
-     * that this should be called at the top level JNI entry point only.
-     */
     void throw_to_java(JNIEnv* env) COLD;
 };
 
-// Equivalent to throw java_ex(...), but the actual code to throw the exception is pushed
-// well out-of-line for possibly slightly better performance.
-void throw_java_ex(const char* ex_class, const char* message) NORETURN COLD;
-void throw_java_ex(const char* ex_class, const std::string& message) NORETURN COLD;
 
-// Equivalent to throw java_ex::from_openssl(ex_class, message)
-void throw_openssl(const char* ex_class, const char* message) NORETURN COLD;
-// Equivalent to throw_openssl(EX_RUNTIME_CRYPTO, message)
-void throw_openssl(const char* message) NORETURN COLD;
-// Equivalent to throw_openssl(generic default message)
-void throw_openssl() NORETURN COLD;
-
-// Wrapper for openssl calls that shouldn't normally fail; if this fails a generic exception
-// will be thrown.
+NORETURN1 void throw_java_ex(const char* ex_class, const char* message) NORETURN2 COLD;
+NORETURN1 void throw_java_ex(const char* ex_class, const std::string& message) NORETURN2 COLD;
 
 
-// LiYK: Macro replacement will happen first in pre-processing.
-// In compile time, concrete instance of this template must be created for each different T
-// I think this will have to infer the value type of an expression.
-// Then during run time, when something like this is executed:
-// check_openssl_impl(EVP_PKEY_new(ctx) == 1, "abcabc");
-// The expression will be evaluated first and then only the value of the expression is passed
-// into the function, this should be one of the fundamental principles of C/C++.
-// Unlike other high level language, expression can't be passed as an object.
-// So the "expr" on the "if" line and the "return" line doesn't cause the expression to be
-// executed twive.
+NORETURN1 void throw_openssl(const char* ex_class, const char* message) NORETURN2 COLD;
+
+NORETURN1 void throw_openssl(const char* message) NORETURN2 COLD;
+
+NORETURN1 void throw_openssl() NORETURN2 COLD;
+
+
 template <typename T> T check_openssl_impl(T expr, const char* errstr)
 {
     if (unlikely(!expr)) {
@@ -146,18 +94,7 @@ template <typename T> T check_openssl_impl(T expr, const char* errstr)
 }
 #define CHECK_OPENSSL(expr) check_openssl_impl(expr, "Unexpected error in openssl; expression: " #expr);
 
-/**
- * A C++ wrapper over the JNIEnv that tracks outstanding buffer locks (if done
- * via the borrow API) and aborts if illegal calls are made while a buffer lock
- * is held
- *
- * Generally, you will construct an raii_env object immediately after entering the
- * C++ side, and pass references to it down to any subsequent helper methods to ensure
- * buffer lock tracking is properly performed.
- *
- * TODO: Find a better name for this. I don't want to use 'context' due to confusion
- * with hash contexts.
- */
+
 class raii_env {
 private:
     JNIEnv* m_env;
@@ -167,7 +104,7 @@ private:
     void buffer_lock_trace() COLD;
 
     void get_env_err() COLD;
-    void dtor_err() COLD NORETURN;
+    NORETURN1 void dtor_err() COLD NORETURN2;
 
     friend class jni_borrow;
 
@@ -176,16 +113,13 @@ private:
     raii_env() DELETE_IMPLICIT;
 
 public:
-    void fatal_error(const char* why) NORETURN COLD
+    NORETURN1 void fatal_error(const char* why) NORETURN2 COLD
     {
         m_env->FatalError(why);
-        while (true) { } // unreachable, silences noreturn warning
+        while (true) { }
     }
 
-    /**
-     * If a java exception is pending, throws a corresponding java_ex.
-     */
-    //void rethrow_java_exception() const __attribute__((always_inline))
+
     FORCE_INLINE1 void rethrow_java_exception() const FORCE_INLINE2
     {
         if (unlikely(const_cast<raii_env*>(this)->get_env()->ExceptionCheck())) {
@@ -193,7 +127,7 @@ public:
         }
     }
 
-    FORCE_INLINE1 bool is_locked() const FORCE_INLINE2 /*__attribute__((always_inline))*/ { return !!m_last_buffer_lock; }
+    FORCE_INLINE1 bool is_locked() const FORCE_INLINE2 { return !!m_last_buffer_lock; }
 
     raii_env(JNIEnv* env)
         : m_env(env)
@@ -201,12 +135,11 @@ public:
     {
     }
 
-    FORCE_INLINE1 JNIEnv* operator->() const FORCE_INLINE2 /*__attribute__((always_inline))*/ { return get_env(); }
+    FORCE_INLINE1 JNIEnv* operator->() const FORCE_INLINE2 { return get_env(); }
 
-    FORCE_INLINE1 JNIEnv* get_env() const FORCE_INLINE2 //__attribute__((always_inline))
+    FORCE_INLINE1 JNIEnv* get_env() const FORCE_INLINE2
     {
         if (unlikely(is_locked())) {
-            // We put the error message code out of line to ensure the fast path can be inlined
             const_cast<raii_env*>(this)->get_env_err();
             return nullptr; // cause a NPE at the actual site of usage
         }
@@ -217,7 +150,6 @@ public:
     ~raii_env()
     {
         if (unlikely(is_locked())) {
-            // We put the error message code out of line to ensure the fast path can be inlined
             dtor_err();
             abort();
         }
@@ -239,17 +171,13 @@ public:
         if (errorFound) {
             abort();
         }
-// EXTRA_TEST_ASSERT
-#endif
+
+#endif  // EXTRA_TEST_ASSERT
+
     }
 };
 
-// Allows us to use C++ RAII for JNI strings.
 
-// LiYK: this class is not widely used in this project. In fact, jstring is not
-// widely used either. This class mostly servers as a wrapper for jstring (using
-// the destructor to call Release). So if jstring is not used much, of course
-// this class is not used much.
 class jni_string {
 private:
     jstring java_str;
@@ -257,11 +185,6 @@ private:
 
 public:
     const char* native_str;
-    // LiYK: this is const char*, how do I modify elements in the string?
-    // Maybe elements in a string (passed down from java) are not meant to be modified.
-    // Maybe they should be treated as immutable, and if I really want to modify them
-    // I should instantiate a new string.
-    // A hack to really modify this is to use const_cast to throw away the constness of this pointer.
 
     operator const char*() const { return native_str; }
 
@@ -284,10 +207,9 @@ public:
     ~jni_string() { (*pRaiiEnv)->ReleaseStringUTFChars(java_str, native_str); }
 };
 
-// This is a custom allocator for use with std:: classes which ensures
-// that all memory is initialized to zero prior to use and prior to freeing.
-// http://en.cppreference.com/w/cpp/concept/Allocator
-template <class T> struct SecureAlloc {
+
+template <class T> 
+struct SecureAlloc {
     typedef T value_type;
     typedef T* pointer;
     typedef const T* const_pointer;
@@ -304,7 +226,6 @@ template <class T> struct SecureAlloc {
 
     T* allocate(std::size_t n)
     {
-        //if (n > SIZE_MAX / sizeof(T)) {
         if (n > (std::numeric_limits<size_t>::max() / sizeof(T))) {
             throw std::bad_alloc();
         }
@@ -316,7 +237,7 @@ template <class T> struct SecureAlloc {
         }
     }
 
-    size_t max_size() const noexcept { return /*SIZE_MAX*/ std::numeric_limits<size_t>::max() / sizeof(T); }
+    size_t max_size() const noexcept { return std::numeric_limits<size_t>::max() / sizeof(T); }
 
     T* address(T& x) const noexcept { return std::allocator<T>::address(x); }
 
@@ -330,7 +251,7 @@ template <class T> struct SecureAlloc {
         ::operator delete(p);
     }
 
-    void construct(T* p, const T& val) { new (p) T(val); }  // LiYK: use "val" to initialize a new object of T, and then assign the address of the object to 'p'. (operator new with placement)
+    void construct(T* p, const T& val) { new (p) T(val); }
 
     void destroy(T* p) noexcept { p->~T(); }
 };

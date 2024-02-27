@@ -3,8 +3,6 @@
 #include "buffer.h"
 #include "env.h"
 #include <openssl/evp.h>
-#include <jni.h>
-
 
 
 /**
@@ -63,6 +61,7 @@ public:
         }
         int tmp_len = 0;
         if (EVP_EncryptFinal_ex(ctx_, output + out_len, &tmp_len) != 1) {
+            // No padding is set in constructor, if input data is not aligned, this returns error
             throw_openssl(EX_RUNTIME_CRYPTO, "EVP_EncryptFinal_ex failed.");
         }
     }
@@ -91,7 +90,6 @@ using namespace AmazonCorrettoCryptoProvider;
 
 extern "C" JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_AesXtsSpi_enc(JNIEnv* env,
     jclass,
-
     jbyteArray jPackedTweakKey,
     jbyteArray jinput,
     jint inputOffset,

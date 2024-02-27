@@ -2,15 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "buffer.h"
 #include "env.h"
-#include "generated-headers.h"
-#include "keyutils.h"
+#include "auto_free.h"
 #include "util.h"
+
+#include <algorithm> // for std::min
+
 #include <openssl/err.h>
 #include <openssl/evp.h>
-#include <algorithm> // for std::min
-#include <cassert>
-#include <cstdio>
-
 #include <openssl/core_names.h>
 
 #define NATIVE_MODE_ENCRYPT 1
@@ -30,9 +28,9 @@
 
 using namespace AmazonCorrettoCryptoProvider;
 
-static void initContext(raii_env& env, raii_cipher_ctx& ctx, jint opMode, java_buffer key, java_buffer iv)
+static void initContext(raii_env& env, EVP_CIPHER_CTX* ctx, jint opMode, java_buffer key, java_buffer iv)
 {
-    const EVP_CIPHER* cipher;
+    ossl_auto<EVP_CIPHER> cipher;
 
     switch (key.len()) {
     case KEY_LEN_AES128:
@@ -48,8 +46,6 @@ static void initContext(raii_env& env, raii_cipher_ctx& ctx, jint opMode, java_b
         throw java_ex(EX_RUNTIME_CRYPTO, "Unsupported key length");
     }
 
-    // We use a SecureBuffer on the stack rather than a borrow to minimize the number
-    // of times we need to cross the JNI boundary (we only need to cross once this way)
     SecureBuffer<uint8_t, KEY_LEN_AES256> keybuf;
     key.get_bytes(env, keybuf.buf, 0, key.len());
 
@@ -58,21 +54,6 @@ static void initContext(raii_env& env, raii_cipher_ctx& ctx, jint opMode, java_b
     };
 
     jni_borrow ivBorrow(env, iv, "iv");
-
-    /*
-    if (unlikely(!EVP_CipherInit_ex(ctx, cipher, NULL, NULL, NULL, opMode))) {
-        throw java_ex::from_openssl(EX_RUNTIME_CRYPTO, "Initializing cipher failed");
-    }
-
-    if (unlikely(!EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, iv.len(), NULL))) {
-        throw java_ex::from_openssl(EX_RUNTIME_CRYPTO, "Setting IV length failed");
-    }
-
-    if (unlikely(!EVP_CipherInit_ex(ctx, NULL, NULL, keybuf, ivBorrow.data(), opMode))) {
-        throw java_ex::from_openssl(EX_RUNTIME_CRYPTO, "Final cipher init failed");
-    }
-    */
-
     size_t ivlen = iv.len();
     params[0] = OSSL_PARAM_construct_size_t(OSSL_CIPHER_PARAM_AEAD_IVLEN, &ivlen);
 
@@ -99,10 +80,6 @@ static int updateLoop(raii_env& env, java_buffer out, java_buffer in, EVP_CIPHER
             throw java_ex::from_openssl(EX_RUNTIME_CRYPTO, "CipherUpdate failed");
         }
 
-        // The java-side checks should prevent us from hitting this assert by
-        // enforcing space for an extra buffered ciphertext block minus one
-        // byte - unfortunately the EVP interface doesn't give us a straight
-        // answer as to how much space we need ahead of time.
         if (unlikely((unsigned int)outl > outBorrow.len())) {
             env.fatal_error("Buffer overrun in cipher loop");
         }
@@ -115,7 +92,7 @@ static int updateLoop(raii_env& env, java_buffer out, java_buffer in, EVP_CIPHER
     return total_output;
 }
 
-static int cryptFinish(raii_env& env, int opMode, java_buffer resultBuf, unsigned int tagLen, raii_cipher_ctx& ctx)
+static int cryptFinish(raii_env& env, int opMode, java_buffer resultBuf, unsigned int tagLen, EVP_CIPHER_CTX* ctx)
 {
     if (opMode == NATIVE_MODE_ENCRYPT && unlikely(tagLen > resultBuf.len())) {
         throw java_ex(EX_SHORTBUF, "No space for GCM tag");
@@ -138,20 +115,11 @@ static int cryptFinish(raii_env& env, int opMode, java_buffer resultBuf, unsigne
         throw java_ex::from_openssl(EX_RUNTIME_CRYPTO, "CipherFinal failed");
     }
 
-    // Recheck now that we know how long the potential final block is.
     if (opMode == NATIVE_MODE_ENCRYPT && unlikely(tagLen + outl > resultBuf.len())) {
         throw java_ex(EX_SHORTBUF, "No space for GCM tag");
     }
 
     if (opMode == NATIVE_MODE_ENCRYPT) {
-        // Encrypt: Fetch tag
-
-        /*
-        int tagRV = EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, tagLen, result.check_range(outl, tagLen));
-        if (unlikely(!tagRV)) {
-            throw java_ex(EX_RUNTIME_CRYPTO, "Failed to get GCM tag");
-        }
-        */
 
         OSSL_PARAM params[2] = {
             OSSL_PARAM_END, OSSL_PARAM_END
@@ -164,7 +132,6 @@ static int cryptFinish(raii_env& env, int opMode, java_buffer resultBuf, unsigne
 
         EVP_CIPHER_CTX_get_params(ctx, params);
 
-        // copy outtag to result
         memcpy(result.check_range(outl, tagLen), outtag, tagLen);
 
         outl += tagLen;
@@ -174,6 +141,17 @@ static int cryptFinish(raii_env& env, int opMode, java_buffer resultBuf, unsigne
 
     return outl;
 }
+
+static void updateAAD_loop(raii_env& env, EVP_CIPHER_CTX* ctx, java_buffer aadData)
+{
+    jni_borrow aad(env, aadData, "aad");
+
+    int outl_ignored;
+    if (!EVP_CipherUpdate(ctx, NULL, &outl_ignored, aad, aad.len())) {
+        throw java_ex::from_openssl(EX_RUNTIME_CRYPTO, "Failed to update AAD state");
+    }
+}
+
 
 JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_AesGcmSpi_oneShotEncrypt(JNIEnv* pEnv,
     jclass,
@@ -195,21 +173,18 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_AesGcmSpi_oneSho
         java_buffer result = java_buffer::from_array(env, resultArray, resultOffset);
         java_buffer iv = java_buffer::from_array(env, ivArray);
 
-        raii_cipher_ctx ctx;
+        EVP_CIPHER_CTX* ctx;
         if (ctxPtr) {
-            ctx.borrow(reinterpret_cast<EVP_CIPHER_CTX*>(ctxPtr));
+            ctx = reinterpret_cast<EVP_CIPHER_CTX*>(ctxPtr);
 
             jni_borrow ivBorrow(env, iv, "iv");
-
-            EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_IVLEN, iv.len(), NULL); // LiYK: add this line, not sure if it makes a difference
 
             if (unlikely(!EVP_CipherInit_ex(ctx, NULL, NULL, NULL, ivBorrow.data(), NATIVE_MODE_ENCRYPT))) {
                 throw java_ex::from_openssl(EX_RUNTIME_CRYPTO, "Failed to set IV");
             }
 
         } else {
-            ctx.init();
-            //EVP_CIPHER_CTX_init(ctx); // LiYK: this macro is deprecated and it just calls EVP_CIPHER_CTX_reset
+            ctx = EVP_CIPHER_CTX_new();
             java_buffer key = java_buffer::from_array(env, keyArray);
             initContext(env, ctx, NATIVE_MODE_ENCRYPT, key, iv);
         }
@@ -222,8 +197,7 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_AesGcmSpi_oneSho
         int finalOffset = cryptFinish(env, NATIVE_MODE_ENCRYPT, result, tagLen, ctx);
 
         if (!ctxPtr && ctxOut) {
-            // Context is new, but caller does want it back
-            jlong tmpPtr = reinterpret_cast<jlong>(ctx.take());
+            jlong tmpPtr = reinterpret_cast<jlong>(ctx);
             env->SetLongArrayRegion(ctxOut, 0 /* start position */, 1 /* number of elements */, &tmpPtr);
         }
 
@@ -247,6 +221,7 @@ JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_AesGcmSpi_encryp
         java_buffer iv = java_buffer::from_array(env, ivArray);
 
         jni_borrow ivBorrow(env, iv, "iv");
+
         if (unlikely(!EVP_CipherInit_ex(ctx, NULL, NULL, NULL, ivBorrow.data(), NATIVE_MODE_ENCRYPT))) {
             throw java_ex::from_openssl(EX_RUNTIME_CRYPTO, "Failed to set IV");
         }
@@ -258,10 +233,8 @@ JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_AesGcmSpi_encryp
 JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_AesGcmSpi_encryptInit___3B_3B(
     JNIEnv* pEnv, jclass, jbyteArray keyArray, jbyteArray ivArray)
 {
-    raii_cipher_ctx ctx;
-    ctx.init();
-    //EVP_CIPHER_CTX_init(ctx);
-
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    
     try {
         raii_env env(pEnv);
 
@@ -270,17 +243,16 @@ JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_AesGcmSpi_encry
 
         initContext(env, ctx, NATIVE_MODE_ENCRYPT, key, iv);
 
-        return (jlong)ctx.take();
+        return reinterpret_cast<jlong>(ctx);
     } catch (java_ex& ex) {
         ex.throw_to_java(pEnv);
-
         return 0;
     }
 }
 
 JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_AesGcmSpi_releaseContext(JNIEnv*, jclass, jlong ctxPtr)
 {
-    EVP_CIPHER_CTX* ctx = (EVP_CIPHER_CTX*)ctxPtr;
+    EVP_CIPHER_CTX* ctx = reinterpret_cast<EVP_CIPHER_CTX*>(ctxPtr);
 
     EVP_CIPHER_CTX_free(ctx);
 }
@@ -300,7 +272,7 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_AesGcmSpi_encryp
         java_buffer input = java_buffer::from_array(env, inputArray, inoffset, inlen);
         java_buffer result = java_buffer::from_array(env, resultArray, resultOffset);
 
-        EVP_CIPHER_CTX* ctx = (EVP_CIPHER_CTX*)ctxPtr;
+        EVP_CIPHER_CTX* ctx = reinterpret_cast<EVP_CIPHER_CTX*>(ctxPtr);
         return updateLoop(env, result, input, ctx);
     } catch (java_ex& ex) {
         ex.throw_to_java(pEnv);
@@ -308,18 +280,6 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_AesGcmSpi_encryp
     }
 }
 
-namespace {
-void updateAAD_loop(raii_env& env, EVP_CIPHER_CTX* ctx, java_buffer aadData)
-{
-    jni_borrow aad(env, aadData, "aad");
-
-    int outl_ignored;
-    // Usually AAD is fairly small, so let's not worry about dropping locks periodically
-    if (!EVP_CipherUpdate(ctx, NULL, &outl_ignored, aad, aad.len())) {
-        throw java_ex::from_openssl(EX_RUNTIME_CRYPTO, "Failed to update AAD state");
-    }
-}
-}
 
 JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_AesGcmSpi_encryptUpdateAAD(
     JNIEnv* pEnv, jclass, jlong ctxPtr, jbyteArray input, jint offset, jint length)
@@ -329,7 +289,7 @@ JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_AesGcmSpi_encryp
         if (!ctxPtr)
             throw java_ex(EX_NPE, "Null context");
 
-        EVP_CIPHER_CTX* ctx = (EVP_CIPHER_CTX*)ctxPtr;
+        EVP_CIPHER_CTX* ctx = reinterpret_cast<EVP_CIPHER_CTX*>(ctxPtr);
         java_buffer aadBuf = java_buffer::from_array(env, input, offset, length);
 
         updateAAD_loop(env, ctx, aadBuf);
@@ -349,12 +309,7 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_AesGcmSpi_encryp
     jint resultOffset,
     jint tagLen)
 {
-    raii_cipher_ctx ctx;
-    if (releaseContext) {
-        ctx.move((EVP_CIPHER_CTX*)ctxPtr);
-    } else {
-        ctx.borrow((EVP_CIPHER_CTX*)ctxPtr);
-    }
+    EVP_CIPHER_CTX* ctx = reinterpret_cast<EVP_CIPHER_CTX*>(ctxPtr);
 
     int rv = -1;
     try {
@@ -372,8 +327,12 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_AesGcmSpi_encryp
         int finalOffset = cryptFinish(env, NATIVE_MODE_ENCRYPT, result, tagLen, ctx);
 
         rv = outoffset + finalOffset;
+
+        if (releaseContext)
+            EVP_CIPHER_CTX_free(ctx);
+
     } catch (java_ex& ex) {
-        EVP_CIPHER_CTX_free(ctx.take());
+        EVP_CIPHER_CTX_free(ctx);
 
         ex.throw_to_java(pEnv);
         return -1;
@@ -404,17 +363,16 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_AesGcmSpi_oneSho
         java_buffer result = java_buffer::from_array(env, resultArray, resultOffset);
         java_buffer iv = java_buffer::from_array(env, ivArray);
 
-        raii_cipher_ctx ctx;
+        EVP_CIPHER_CTX* ctx;
         if (ctxPtr) {
-            ctx.borrow(reinterpret_cast<EVP_CIPHER_CTX*>(ctxPtr));
+            ctx = reinterpret_cast<EVP_CIPHER_CTX*>(ctxPtr);
 
             jni_borrow ivBorrow(env, iv, "iv");
             if (unlikely(!EVP_CipherInit_ex(ctx, NULL, NULL, NULL, ivBorrow.data(), NATIVE_MODE_DECRYPT))) {
                 throw java_ex::from_openssl(EX_RUNTIME_CRYPTO, "Failed to set IV");
             }
         } else {
-            ctx.init();
-            EVP_CIPHER_CTX_init(ctx);
+            ctx = EVP_CIPHER_CTX_new();
             java_buffer key = java_buffer::from_array(env, keyArray);
             initContext(env, ctx, NATIVE_MODE_DECRYPT, key, iv);
         }
@@ -444,8 +402,7 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_AesGcmSpi_oneSho
         outoffset += cryptFinish(env, NATIVE_MODE_DECRYPT, result.subrange(outoffset), tagLen, ctx);
 
         if (!ctxPtr && ctxOut) {
-            // Context is new, but caller does want it back
-            jlong tmpPtr = reinterpret_cast<jlong>(ctx.take());
+            jlong tmpPtr = reinterpret_cast<jlong>(ctx);
             env->SetLongArrayRegion(ctxOut, 0, 1, &tmpPtr);
         }
 

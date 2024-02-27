@@ -106,13 +106,11 @@ void format_trace(std::ostringstream& accum, const std::vector<void*>& trace)
 
 void java_ex::throw_to_java(JNIEnv* env)
 {
-    // Do not try to throw an exception when one is already being thrown.
     if (unlikely(env->ExceptionCheck())) {
         return;
     }
 
     if (m_java_exception) {
-        // Just rethrow the exception as-is
         env->Throw(m_java_exception);
         return;
     }
@@ -129,17 +127,13 @@ void java_ex::throw_to_java(JNIEnv* env)
 
         std::string message = oss.str();
 
-        // If ex_class is null, then java implicitly threw a ClassDefNotFoundError
         int rv = env->ThrowNew(ex_class, message.c_str());
         if (unlikely(rv != 0)) {
             env->FatalError("ThrowNew returned error");
             abort();
         }
     }
-    // We can assume that all native error handling has completed
-    // by this point, so to ensure there are no errors left in
-    // the openssl error queue, we empty it. This avoids accidentally
-    // leaving an old error for later error handling to find.
+
     ERR_clear_error();
 
     assert(env->ExceptionCheck());

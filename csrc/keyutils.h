@@ -10,9 +10,6 @@
 #include <openssl/evp.h>
 #include <openssl/x509.h>
 
-// Contains utility methods and classes for dealing with keys or openssl structures.
-// Unlike util.h, this is intended to capture high-level logic with more internal dependencies.
-
 namespace AmazonCorrettoCryptoProvider {
 
 // This class should generally not be used for new development
@@ -70,75 +67,19 @@ public:
     }
 
 private:
-    EVP_MD_CTX_auto digestCtx_;
-    EVP_PKEY_CTX_auto keyCtx_;
-    EVP_PKEY_auto key_;
+    ossl_auto<EVP_MD_CTX> digestCtx_;
+    ossl_auto<EVP_PKEY_CTX> keyCtx_;
+    ossl_auto<EVP_PKEY> key_;
 
     // Disable copy & copy-assignment
     EvpKeyContext(const EvpKeyContext&) DELETE_IMPLICIT;
     EvpKeyContext& operator=(const EvpKeyContext&) DELETE_IMPLICIT;
 };
 
-EVP_PKEY* der2EvpPrivateKey(
-    const unsigned char* der, const int derLen, const bool checkPrivateKey, const char* javaExceptionClass);
+EVP_PKEY* der2EvpPrivateKey(const unsigned char* der, const int derLen, const bool checkPrivateKey, const char* javaExceptionClass);
 EVP_PKEY* der2EvpPublicKey(const unsigned char* der, const int derLen, const char* javaExceptionClass);
 bool checkKey(const EVP_PKEY* key);
-static bool inline BN_null_or_zero(const BIGNUM* bn) { return nullptr == bn || BN_is_zero(bn); }
 
-class raii_cipher_ctx {
-private:
-    EVP_CIPHER_CTX* m_ctx;
-    bool m_owning;
-
-public:
-    raii_cipher_ctx()
-        : m_ctx(nullptr)
-        , m_owning(false)
-    {
-    }
-
-    void clean()
-    {
-        if (m_ctx && m_owning) {
-            EVP_CIPHER_CTX_free(m_ctx);
-        }
-    }
-
-    ~raii_cipher_ctx() { clean(); }
-
-    void init() { move(EVP_CIPHER_CTX_new()); }
-
-    void borrow(EVP_CIPHER_CTX* ctx)
-    {
-        clean();
-        m_owning = false;
-        m_ctx = ctx;
-    }
-
-    void move(EVP_CIPHER_CTX* ctx)
-    {
-        clean();
-        m_owning = true;
-        m_ctx = ctx;
-    }
-
-    operator EVP_CIPHER_CTX*() { return m_ctx; }
-
-    operator const EVP_CIPHER_CTX*() const { return m_ctx; }
-
-    EVP_CIPHER_CTX& operator*() { return *m_ctx; }
-
-    const EVP_CIPHER_CTX& operator*() const { return *m_ctx; }
-
-    EVP_CIPHER_CTX* take()
-    {
-        EVP_CIPHER_CTX* result = m_ctx;
-        m_ctx = nullptr;
-        return result;
-    }
-};
-
-const EVP_MD* digestFromJstring(raii_env& env, jstring digestName);
 }
 
 #endif

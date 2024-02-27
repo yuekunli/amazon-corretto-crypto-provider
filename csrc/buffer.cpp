@@ -11,11 +11,6 @@ void jni_borrow::bad_release()
     abort();
 }
 
-// LiYK: The reason we need the conversion between vector and java_buffer:
-// If I really need to copy the content from java_buffer to a local, I don't know the java_buffer length
-// in compile time, I can't use a local variable (a C array). I have to allocate memory on the heap.
-// And once I allocate on the heap, I must take care of freeing. But if I use vector, its destructor can help free
-
 std::vector<uint8_t, SecureAlloc<uint8_t> > java_buffer::to_vector(raii_env& env) const
 {
     std::vector<uint8_t, SecureAlloc<uint8_t> > vec(len());
@@ -34,7 +29,6 @@ jbyteArray vecToArray(raii_env& env, const std::vector<uint8_t, SecureAlloc<uint
 
     env->SetByteArrayRegion(array, 0, vec.size(), reinterpret_cast<const jbyte*>(&vec[0]));
 
-    // If something went wrong above, rethrow that exception as a C++ exception now
     env.rethrow_java_exception();
 
     return array;

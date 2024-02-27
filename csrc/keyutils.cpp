@@ -283,20 +283,5 @@ bool checkKey(EVP_PKEY* key)
     return result;
 }
 
-const EVP_MD* digestFromJstring(raii_env& env, jstring digestName)
-{
-    if (!digestName) {
-        throw_java_ex(EX_RUNTIME_CRYPTO, "Null Digest name");
-        return NULL;
-    }
-    jni_string name(env, digestName);
-    //const EVP_MD* result = EVP_get_digestbyname(name.native_str);
-    const EVP_MD* result = EVP_MD_fetch(NULL/*lib ctx*/, name.native_str, NULL/*prop queue*/);
 
-    if (!result) {
-        throw_openssl("Unable to get digest");
-    }
-
-    return result;
-}
 }

@@ -1,15 +1,13 @@
 // Copyright Amazon.com Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 #ifndef UTIL_H
-#define UTIL_H 1
+#define UTIL_H
 
 #include "compiler.h"
-//#include "config.h"
 #include "generated-headers.h"
 #include <openssl/bn.h>
 #include <openssl/ec.h>
 #include <cstdlib>
-
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -17,10 +15,6 @@
 
 namespace AmazonCorrettoCryptoProvider {
 
-/* Drains all errors from the Openssl error queue and returns
- * just the most recent one. This should usually be used rather
- * than ERR_get_error.
- */
 unsigned long drainOpensslErrors();
 
 std::string formatOpensslError(unsigned long errorCode, const char* fallback);
@@ -44,6 +38,8 @@ inline std::string opensslErrorWithDefault(const char* fallback)
 #define EX_INVALID_KEY         "java/security/InvalidKeyException"
 #define EX_INVALID_KEY_SPEC    "java/security/spec/InvalidKeySpecException"
 #define EX_SIGNATURE_EXCEPTION "java/security/SignatureException"
+#define CLASSNOTFOUND_TYPE     "java/lang/NoClassDefFoundError"
+
 
 // Define this prior to use as some compilers don't like it the other way around.
 static inline void secureZero(void* ptr, size_t size)
@@ -54,7 +50,8 @@ static inline void secureZero(void* ptr, size_t size)
     memset(ptr, 0, size);
 }
 
-template <typename type, size_t size> class SecureBuffer {
+template <typename type, size_t size> 
+class SecureBuffer {
 public:
     type buf[size];
 
@@ -79,13 +76,9 @@ public:
 
 #else // on non-microsoft compiler
 
-    #if __BYTE_ORDER == __LITTLE_ENDIAN   //LiYK: __BYTE_ORDER__ is GCC common predefined macros, what about __BYTE_ORDER?
-                                            // according to GNU documentation https://gcc.gnu.org/onlinedocs/cpp/Common-Predefined-Macros.html
-                                            // this line is probably better written this way: 
-                                            // #if  __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 
-        #if defined(__x86_64__)  // LiYK: likely a system-specific predefined macro on GCC
-            // We need to continue supporting some old x86_64 build-chains, so we use a hand-rolled version of bswap64
+        #if defined(__x86_64__) 
             static inline uint64_t swapEndian(uint64_t val)
             {
                 uint64_t result = val;
@@ -97,18 +90,17 @@ public:
             #define bigEndianToHost64(x) swapEndian(x)
 
         #else
-            // For all other platforms (currently just aarch64), we know we are on a modern build-chain
-            // and can use the build-in function. (Also, the x86_64 assembly above won't work.)
+  
             #define hostToBigEndian64(x) __builtin_bswap64(x)
             #define bigEndianToHost64(x) __builtin_bswap64(x)
 
-        #endif // Platform logic in __BYTE_ORDER == __LITTLE_ENDIAN
+        #endif
 
-    #else // __BYTE_ORDER == __BIG_ENDIAN
-        // No conversions are needed, so these methods become NOPs
+    #else // big endien:
+        
         #define hostToBigEndian64(x) (x)
         #define bigEndianToHost64(x) (x)
-    #endif // BYTE_ORDER logic
+    #endif
 
 #endif // defined (_MSC_VER)
 
@@ -126,7 +118,6 @@ static inline void* fast_xor(void* dest, const void* src, int len)
     return dest;
 }
 
-/* Checks that the range of [offset, offset + range_len) fits within a buffer of size length */
 static inline bool check_bounds(size_t length, size_t offset, size_t range_len)
 {
     if (unlikely(range_len > length)) {
@@ -137,7 +128,6 @@ static inline bool check_bounds(size_t length, size_t offset, size_t range_len)
         return false;
     }
 
-    // Since offset <= length, we know this won't underflow
     size_t remaining = length - offset;
     return remaining >= range_len;
 }

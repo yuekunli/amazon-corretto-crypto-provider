@@ -7,11 +7,8 @@
 #include "compiler.h"
 #include "env.h"
 #include <openssl/bn.h>
-#include <memory>
 
 namespace AmazonCorrettoCryptoProvider {
-
-class BigNumObj;
 
 void jarr2bn(raii_env& env, jbyteArray array, BIGNUM* bn);
 void jarr2bn(raii_env& env, const java_buffer& buffer, BIGNUM* bn);
@@ -31,7 +28,7 @@ private:
 
     void ensure_init() const
     {
-        BigNumObj* pThis = const_cast<BigNumObj*>(this);  // LiYK: const_cast: throw away constness, but I don't quite understand why this function is declared const.
+        BigNumObj* pThis = const_cast<BigNumObj*>(this);
 
         if (!pThis->m_pBN) {
             pThis->m_pBN = BN_new();
@@ -98,26 +95,25 @@ public:
     }
 
 #ifdef HAVE_CPP11
-    BigNumObj(const BigNumObj&) = delete;   // LiYK: One BIGNUM object is only owned by one BigNumObj, so we don't want copy constructor or copy assignment
+    BigNumObj(const BigNumObj&) = delete;
     BigNumObj& operator=(const BigNumObj&) = delete;
 
-    BigNumObj& operator=(BigNumObj&& bn)
+    BigNumObj& operator=(BigNumObj&& bn) noexcept
     {
         move(bn);
         return *this;
     }
 
-    BigNumObj(BigNumObj&& bn)
+    BigNumObj(BigNumObj&& bn) noexcept
         : m_pBN(NULL)
     {
         *this = std::move(bn);
     }
-#else // LiYK: before CPP11, there is no rvalue reference, so there is no "move" constructor or "move" assignment
+#else
     BigNumObj& operator=(const BigNumObj& other_const)
     {
-        BigNumObj& other = const_cast<BigNumObj&>(other_const);  // LiYK: const_cast: throw away constness
+        BigNumObj& other = const_cast<BigNumObj&>(other_const);
 
-        // No std::move before C++11, use this class's implementation.
         move(other);
 
         return *this;
@@ -132,7 +128,8 @@ public:
 #endif
 };
 
-inline BigNumObj bn_zero() { return BigNumObj(); }
+inline static BigNumObj bn_zero() { return BigNumObj(); }
+inline static bool  BN_null_or_zero(const BIGNUM* bn) { return nullptr == bn || BN_is_zero(bn); }
 
 } // namespace AmazonCorrettoCryptoProvider
 

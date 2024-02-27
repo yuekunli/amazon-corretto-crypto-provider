@@ -4,56 +4,12 @@
 #define BUFFER_H
 
 #include "env.h"
+#include "util.h"
 #include <vector>
 
 namespace AmazonCorrettoCryptoProvider {
 
 jbyteArray vecToArray(raii_env& env, const std::vector<uint8_t, SecureAlloc<uint8_t> >& vec);
-
-/**
- * This class represents some kind of java buffer - whether it's a slice of a
- * java array or a direct byte buffer.
- *
- * To gain access to the data in the buffer, use the jni_borrow class.
- *
- * The java_buffer class itself only contains metadata, so it can be copied using
- * the usual copy constructors. To construct from a Java object, use the static from_*
- * methods - note that these make JNI calls, so they cannot be used when a borrow is
- * active.
- */
-
-/**
- * LiYK: This class defines two ways to create such a java_buffer object, namely from_array and from_direct
- * There isn't a decisive reason why there are only two ways. This just artificially dictates the creator of
- * an object of this class to have either one of the two, because array and direct buffer are the most common
- * ways to hold consecutive data in Java.
-*/
-
-/**
- * LiYK: The idea is to note down only meta data in java_buffer, if I want to access the data, I need to create a borrow.
- * The most important thing needed to be done when creating a borrow is to identify the pointer that points to the start
- * of the native array. If the java_buffer object is created out of a Java array type object, I only note down the jbyteArray
- * variable (remember that when Java passes a byte[] to JNI, JNI gets a jbyteArray which is essentially a pointer to an object).
- * When creating a borrow out of such java_buffer, I need to use GetPrimitiveArrayCritical to get the pointer to the native array.
- * But when creating a java_buffer out of a Java direct buffer, I guess because of some uniqueness of direct buffer, we just
- * call GetDirectBufferAddress and get the pointer to the native array already. The m_pBuffer in jni_borrow is supposed to be
- * the pointer to the native array. Note that when the original source is a direct buffer, m_pBuffer is simply assigned with
- * m_direct_buffer from java_buffer.
- * To summarize:
- *     when original source is a Java byte array, I note down jbyteArray when creating java_buffer, and get the real
- *     pointer later when I create jni_borrow. 
- * 
- *     when original source is a Java direct buffer, I already get the real pointer when creating java_buffer (because it's easy to do so?).
- *     the job becomes easier when later creating jni_borrow
- * 
-*/
-
-/**
-* LiYK: java_buffer actually has get_bytes and put_bytes member functions. We usually see java_buffer and jni_borrow used in tandem,
-* but that is not absolutely necessary. I can just use java_buffer and get_bytes and put_bytes without creating jni_borrow.
-* When I use get_bytes / put_butes if there is no other jni_borrow on the env pointer and its underlying memory is from java array,
-* get_bytes / put_bytes won't use pinning (i.e. Get/ReleasePrivimiteArrayCritical)
-*/
 
 class java_buffer {
 private:
@@ -74,7 +30,6 @@ public:
     }
 
     bool operator!() const { return !(m_array || m_direct_buffer); }
-    // LiYK: If I have a valid array or buffer, "!()" evaluates to false, "!!()" evaluates to true.
 
     java_buffer subrange(size_t offset, size_t len) const
     {
@@ -100,10 +55,6 @@ public:
             return subrange(offset, 0);
     }
 
-    /**
-     * Verifies that the range of bytes between 'offset' and 'offset + len' is
-     * within the bounds of this buffer. If not, an exception is thrown.
-     */
     void check_bounds(size_t offset, size_t len) const
     {
         if (unlikely(!*this)) {
@@ -115,35 +66,12 @@ public:
         }
     }
 
-    /**
-     * Copies 'len' bytes from the buffer, starting at 'offset') to 'dest'.
-     *
-     * If something goes wrong (e.g. bounds check on the buffer), a java_ex
-     * will be thrown
-     */
     void get_bytes(raii_env& env, uint8_t* dest, size_t offset, size_t len) const;
 
-    /**
-     * Copies 'len' bytes from 'src' to the buffer, starting at 'offset' within this java_buffer.
-     *
-     * If something goes wrong (e.g. bounds check on the buffer), a java_ex
-     * will be thrown
-     */
     void put_bytes(raii_env& env, const uint8_t* src, size_t offset, size_t len);
 
-    /**
-     * Copies this java buffer to a C++ vector.
-     */
     std::vector<uint8_t, SecureAlloc<uint8_t> > to_vector(raii_env& env) const;
 
-    /**
-     * Constructs a java buffer representing the entirety of a direct byte buffer.
-     *
-     * If the passed object is not a direct buffer, an appropriate java_ex will be thrown.
-     *
-     * It is the caller's responsibility to ensure that the direct_buffer object remains referenced
-     * (in Java) as long as the java_buffer exists.
-     */
     static java_buffer from_direct(raii_env& context, jobject direct_buffer)
     {
         if (unlikely(!direct_buffer)) {
@@ -169,16 +97,6 @@ public:
         return buf;
     }
 
-    /**
-     * Constructs a java buffer representing a slice of an array.
-     *
-     * If the passed pointer is not a byte array, or the offset and length point outside the
-     * array, then an appropriate java_ex will be thrown.
-     *
-     * This class does not manage the lifetime of the array reference - the caller must ensure that
-     * usage of the java_buffer does not outlive the underlying array reference, and must ensure that
-     * if the array reference is a local reference, that the java_buffer does not cross threads.
-     */
     static java_buffer from_array(raii_env& context, jbyteArray array, jint offset, jint length)
     {
         if (unlikely(!array)) {
@@ -205,16 +123,6 @@ public:
         return buf;
     }
 
-    /**
-     * Constructs a java_buffer from a java byte array, starting at the specified offset and continuing
-     * until the end of the array.
-     *
-     * Throws an appropriate java_ex if the passed pointer is not an array.
-     *
-     * This class does not manage the lifetime of the array reference - the caller must ensure that
-     * usage of the java_buffer does not outlive the underlying array reference, and must ensure that
-     * if the array reference is a local reference, that the java_buffer does not cross threads.
-     */
     static java_buffer from_array(raii_env& context, jbyteArray array, size_t offset = 0)
     {
         if (unlikely(!array)) {
@@ -245,60 +153,38 @@ public:
         return buf;
     }
 
-    /**
-     * Returns the length, in bytes, of the data represented by this java_buffer.
-     */
     size_t len() const { return m_length; }
 
-    /**
-     * Returns the underlying java array, or a nullptr if this is backed by a direct byte buffer
-     * or is null.
-     */
     jbyteArray array() const { return m_array; }
 };
 
-/**
- * A jni_borrow represents a slice of memory "borrowed" from the JVM.
- * This can either be a direct byte buffer, or an array accessed by an active
- * GetPrimitiveArrayCritical buffer lock.
- */
+
 class jni_borrow {
 private:
 
-    
-    // LiYK: A jni_borrow is associated to either a java array or a java direct buffer. In case of java array
-    // accessing the data has to be enclosed by Get/ReleasePrimitiveArrayCritical. Such requirement makes code
-    // around jni_borrow feel like the handling of a lock where I need to lock and release.
-    // In order to not forget to call Release, I link all the jni_borrow objects in a list and the list behaves
-    // like a stack, i.e. a jni_borrow is pushed onto the stack when it's Get...Critical, and the last Get
-    // must the first Release. Then I associate such list(stack) with an raii_env, because the Get/Release...Critical
-    // calls are env member functions. All these efforts just ensure the Get and Release calls for jni_borrows are
-    // paired up.
-
-    // The borrow that was opened before us, if any
     jni_borrow* m_prior_borrow;
-    // The borrow that was opened after us, if any
+    
     jni_borrow* m_next_borrow;
-    // The JNI context we were spawned from
+    
     raii_env* m_context;
-    // Debug information on where this borrow was opened
+    
     const char* m_trace;
-    // Data length
+    
     size_t m_length;
-    // Java array, if any
+    
     jbyteArray m_array;
-    // Pointer to the original java buffer
+    
     void* m_pBuffer;
-    // True if this represents a locked array, false for a direct buffer reference
+    
     bool m_is_locked;
-    // Pointer to the data slice within the buffer
+    
     void* m_pData;
 
-    void bad_release() COLD NORETURN;
+    NORETURN1 void bad_release() COLD NORETURN2;
 
     friend class raii_env;
 
-    void clear() ALWAYS_INLINE
+    FORCE_INLINE1 void clear() FORCE_INLINE2
     {
         m_next_borrow = nullptr;
         m_prior_borrow = nullptr;
@@ -342,11 +228,10 @@ public:
     jni_borrow() { clear(); }
 
 #ifdef HAVE_CPP11
-    // Do not allow implicit copy constructors
+
     jni_borrow(const jni_borrow&) = delete;
     jni_borrow& operator=(const jni_borrow&) = delete;
 
-    // Move semantics
     jni_borrow& operator=(jni_borrow&& other)
     {
         move(other);
@@ -358,11 +243,9 @@ public:
         move(other);
     }
 #else
-    // On a pre-C++11 compiler, we do an awful hack and mutate the passed-in
-    // (const) reference.
     jni_borrow& operator=(const jni_borrow& other)
     {
-        move(const_cast<jni_borrow&>(other)); // LiYK: const_cast converts a const reference to a non-const reference, "cast" means "throw away"
+        move(const_cast<jni_borrow&>(other));
         return *this;
     }
 
@@ -409,7 +292,6 @@ public:
     void release()
     {
         if (!m_context) {
-            // Not initialized
             return;
         }
 
@@ -432,7 +314,8 @@ public:
 
     uint8_t* data() { return (uint8_t*)m_pData; }
 
-    operator uint8_t*() { return data(); }  // LiYK: conversion operator that converts an object to a pointer to uint8_t
+    operator uint8_t*() { return data(); }
+
     operator const uint8_t*() const { return data(); }
 
     uint8_t* check_range(size_t off, size_t len)
@@ -477,7 +360,7 @@ inline void java_buffer::put_bytes(raii_env& env, const uint8_t* src, size_t off
     }
     check_bounds(offset, len);
 
-    if (env.is_locked() || m_direct_buffer) {  // if is_locked, other java_buffer (from java array) is being accessed by jni_borrow, native code is in a critical section, must not call any other JNI functions
+    if (env.is_locked() || m_direct_buffer) {
         jni_borrow borrow(env, *this, "put_bytes");
         memcpy(borrow + offset, src, len);
     } else {
@@ -486,32 +369,16 @@ inline void java_buffer::put_bytes(raii_env& env, const uint8_t* src, size_t off
     }
 }
 
-/**
- * A bounce buffer is a buffer that is _copied_ from a Java array or byte buffer.
- * Upon destruction, it is copied back. For small amounts of data (where the size is known at compile-time)
- * it can be more efficient and more flexible than using jni_borrow (which usually enters a critical region).
- *
- * T must have a trivial default constructor and be trivially copyable.
- */
 
-/**
-* LiYK: This one is almost the same as jni_borrow.
-* Differences:
-* (1). When dealing with java array, bounce_buffer doesn't use pinning (i.e. doesn't use Get/ReleasePrimitiveArrayCritical)
-* (2). bounce_buffer doesn't deal with a consecutive block of data, rather, it deals with a C++ object whose content is stored in a block of memory.
-*      This bounce_buffer basically restores the object from the opaque memory and later writes to opaque memory again.
-*      This is basically the simplest serialization/deserialization operation.
-*      This is why the template parameter T must be travially copyable, because the deserialization process is just memory copy
-* (3). When jni_borrow is created, the underlying memory is not read yet, only pointers are saved.
-*      When bounce_buffer is created, the memory is immediately read and deserialized into object of type T, when bounce_buffer is destructed,
-*      object of type T is written back to the underlying memory.
-*/
+template <typename T> 
+class bounce_buffer {
 
-template <typename T> class bounce_buffer {
 private:
+
 #ifdef HAVE_IS_TRIVIALLY_COPYABLE
     static_assert(std::is_trivially_copyable<T>::value, "Type must be trivially copyable");
 #endif
+
 #ifdef HAVE_IS_TRIVIALLY_DESTRUCTABLE
     static_assert(std::is_trivially_destructable<T>::value, "Type must be trivially destructable");
 #endif
@@ -535,11 +402,7 @@ private:
     }
 
 public:
-    /**
-     * The default constructor creates an unusable bounce buffer. This is here
-     * just to allow code that looks like C++11 code to compile (with weird
-     * not-quite-move semantics) on older compilers.
-     */
+
     bounce_buffer()
     {
         m_pEnv = nullptr;
@@ -547,11 +410,10 @@ public:
     }
 
 #ifdef HAVE_CPP11
-    // Remove default copy/assign operators
+
     bounce_buffer(const bounce_buffer&) DELETE_IMPLICIT;
     bounce_buffer& operator=(const bounce_buffer&) DELETE_IMPLICIT;
 
-    // Move semantics
     bounce_buffer(bounce_buffer&& movesrc)
     {
         m_pEnv = nullptr;
@@ -567,7 +429,6 @@ public:
         return *this;
     }
 #else
-    // Emulate move semantics on pre-C++11 compilers
     bounce_buffer& operator=(const bounce_buffer& other)
     {
         move(const_cast<bounce_buffer&>(other));
@@ -583,15 +444,12 @@ public:
     }
 #endif
 
-    static bounce_buffer from_array(raii_env& env, jbyteArray array) ALWAYS_INLINE
+    FORCE_INLINE1 static bounce_buffer from_array(raii_env& env, jbyteArray array) FORCE_INLINE2
     {
         return bounce_buffer(env, java_buffer::from_array(env, array));
     }
 
-    // We force inlining because, in many cases, the buffer.array() && !env.is_locked()
-    // clause can be determined using compile-time information, allowing for this test to
-    // be optimized out.
-    bounce_buffer(raii_env& env, java_buffer buffer) ALWAYS_INLINE
+    FORCE_INLINE1 bounce_buffer(raii_env& env, java_buffer buffer) FORCE_INLINE2
     {
         m_buffer = buffer;
 
@@ -611,9 +469,9 @@ public:
         m_valid = true;
     }
 
-    ~bounce_buffer() ALWAYS_INLINE { release(); }
+    FORCE_INLINE1 ~bounce_buffer() FORCE_INLINE2 { release(); }
 
-    void release() ALWAYS_INLINE
+    FORCE_INLINE1 void release() FORCE_INLINE2
     {
         if (!m_valid)
             return;
@@ -652,13 +510,6 @@ public:
     void zeroize() { secureZero(&m_storage, sizeof(m_storage)); }
 };
 
-
-
-// Please follow the guidelines outlined in {Get,Release}PrimitiveArrayCritical when using this class:
-// https://docs.oracle.com/javase/8/docs/technotes/guides/jni/spec/functions.html#GetPrimitiveArrayCritical_ReleasePrimitiveArrayCritical
-
-// LiYK: this is no different than creating java_buffer and then creating jni_borrow out of java_buffer,
-// why using a separate class? Or what is the difference?
 
 class JByteArrayCritical {
 public:
