@@ -13,7 +13,7 @@
 
 using namespace AmazonCorrettoCryptoProvider;
 
-static void setPaddingParams(EVP_PKEY_CTX* keyCtx, int padding, long oaepMdPtr, long mgfMdPtr)
+static void setPaddingParams(EVP_PKEY_CTX* keyCtx, long padding, __int64 oaepMdPtr, __int64 mgfMdPtr)
 {
     CHECK_OPENSSL(EVP_PKEY_CTX_set_rsa_padding(keyCtx, padding));
     switch (padding) {

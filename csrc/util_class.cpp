@@ -20,7 +20,7 @@ extern "C" {
 JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_Utils_getNativeBufferOffset(
     JNIEnv* env, jclass, jobject bufA, jobject bufB)
 {
-    const jlong JINT_MAX = (1L << 31) - 1L;
+    const jlong JINT_MAX = (1LL << 31) - 1L;
     const jlong JINT_MIN = -(1L << 31);
     
     const jlong no_overlap = JINT_MAX + 1L;

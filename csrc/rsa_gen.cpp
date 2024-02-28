@@ -5,6 +5,7 @@
 #include "generated-headers.h"
 #include "util.h"
 #include <openssl/evp.h>
+#include <openssl/rsa.h>
 
 using namespace AmazonCorrettoCryptoProvider;
 

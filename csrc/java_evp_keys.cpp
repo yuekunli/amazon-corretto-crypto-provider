@@ -251,6 +251,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpK
     }
     catch (java_ex& ex) {
         ex.throw_to_java(pEnv);
+        return 0;
     }
 }
 
@@ -575,6 +576,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpK
     catch (java_ex& ex)
     {
         ex.throw_to_java(pEnv);
+        return 0;
     }
 }
 
@@ -651,10 +653,9 @@ extern "C" JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider
         
         result = env->NewByteArray(derLen);
         env->SetByteArrayRegion(result, 0, derLen, der);
-
-        return result;
     }
     catch (java_ex& ex) {
         ex.throw_to_java(pEnv);
     }
+    return result;
 }

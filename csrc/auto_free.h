@@ -8,15 +8,6 @@
 #include "env.h"
 #include "util.h"
 
-#include <openssl/evp.h>
-#include <openssl/encoder.h>
-#include <openssl/decoder.h>
-#include <openssl/params.h>
-#include <openssl/param_build.h>
-#include <openssl/asn1.h>
-#include <openssl/kdf.h>
-#include <openssl/x509.h>
-
 using namespace AmazonCorrettoCryptoProvider;
 
 template<typename T>

@@ -12,9 +12,69 @@
 #include <openssl/params.h>
 #include <openssl/core_names.h>
 #include <openssl/asn1.h>
+#include <openssl/evp.h>
 
 #include <sstream>
 #include <vector>
+
+namespace AmazonCorrettoCryptoProvider {
+
+using std::string;
+using std::stringstream;
+
+static string openssl_asn1_oid_bin2dot(unsigned char* p, size_t length)
+{
+    stringstream ss1;
+
+    for (size_t i = 0; i < length; i++)
+    {
+        if (i == 0)
+        {
+            unsigned char a = p[0];
+            unsigned char a1 = a / 40;
+            unsigned char a2 = a % 40;
+            ss1 << (unsigned short)a1 << '.' << (unsigned short)a2 << '.';
+        }
+        else
+        {
+            unsigned char a = p[i];
+            if ((a & 0x80) == 0)
+            {
+                ss1 << (unsigned short)a << '.';
+            }
+            else
+            {
+                unsigned long b = 0;
+                a = a & 0x7f; // clear the highest bit in 'a'
+                unsigned long c = (unsigned long)a; // c and b have the same length, the lowest 7 bits of c are meaningful
+                b = b | c;
+                i++;
+                a = p[i];
+                while ((a & 0x80) != 0)
+                {
+                    a = a & 0x7f;
+                    c = (unsigned long)a;
+                    b = b << 7;
+                    b = b | c;
+                    i++;
+                    a = p[i];
+                }
+                c = (unsigned long)a;
+                b = b << 7;
+                b = b | c;
+                ss1 << b << '.';
+            }
+        }
+    }
+
+    string s;
+    ss1 >> s;
+    size_t l = s.length();
+    string final_string = s.substr(0, l - 1);
+
+    return final_string;
+}
+}
 
 using namespace AmazonCorrettoCryptoProvider;
 
@@ -142,6 +202,9 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_EcUtils_curveNam
 
         ASN1_OBJECT* curve_ASN_obj = OBJ_txt2obj(jniCurve.native_str, 0/*search registered objects*/);
 
+        // get nid
+        int nid = OBJ_obj2nid(curve_ASN_obj);
+
         // get the numeric-dot notation OID
         char dot_notation_oid[80];
 
@@ -166,6 +229,8 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_EcUtils_curveNam
         jni_borrow encodedOidBorrow = jni_borrow(env, java_buffer::from_array(env, encoded), "DER encoded curver OID");
         memcpy(encodedOidBorrow.data(), der_encoded_oid, serialized_oid_length + 2);
         encodedOidBorrow.release();
+
+        return nid;
     }
     catch (java_ex& ex) {
         ex.throw_to_java(pEnv);
@@ -212,64 +277,6 @@ JNIEXPORT jobjectArray JNICALL Java_com_amazon_corretto_crypto_provider_EcUtils_
     * Method:    getCurveNameFromEncoded
     * Signature: ([B)Ljava/lang/String
     */
-
-using std::string;
-using std::stringstream;
-
-static string openssl_asn1_oid_bin2dot(unsigned char* p, size_t length)
-{
-    stringstream ss1;
-
-    for (size_t i = 0; i < length; i++)
-    {
-        if (i == 0)
-        {
-            unsigned char a = p[0];
-            unsigned char a1 = a / 40;
-            unsigned char a2 = a % 40;
-            ss1 << (unsigned short)a1 << '.' << (unsigned short)a2 << '.';
-        }
-        else
-        {
-            unsigned char a = p[i];
-            if ((a & 0x80) == 0)
-            {
-                ss1 << (unsigned short)a << '.';
-            }
-            else
-            {
-                unsigned long b = 0;
-                a = a & 0x7f; // clear the highest bit in 'a'
-                unsigned long c = (unsigned long)a; // c and b have the same length, the lowest 7 bits of c are meaningful
-                b = b | c;
-                i++;
-                a = p[i];
-                while ((a & 0x80) != 0)
-                {
-                    a = a & 0x7f;
-                    c = (unsigned long)a;
-                    b = b << 7;
-                    b = b | c;
-                    i++;
-                    a = p[i];
-                }
-                c = (unsigned long)a;
-                b = b << 7;
-                b = b | c;
-                ss1 << b << '.';
-            }
-        }
-    }
-
-    string s;
-    ss1 >> s;
-    size_t l = s.length();
-    string final_string = s.substr(0, l - 1);
-
-    return final_string;
-}
-
-
 JNIEXPORT jstring JNICALL Java_com_amazon_corretto_crypto_provider_EcUtils_getCurveNameFromEncoded(
     JNIEnv* pEnv, jclass, jbyteArray encoded)
 {

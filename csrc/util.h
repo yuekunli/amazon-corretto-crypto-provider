@@ -48,6 +48,14 @@ static inline void secureZero(void* ptr, size_t size)
         return;
     }
     memset(ptr, 0, size);
+
+#ifdef __GUNC__
+    __asm__ __volatile__("" /* don't actually do anything */
+                          : /* no outputs */
+                          : "r"(ptr) /* make the compiler think the memset matters */
+                          : "memory" /* pretend we modify memory, so the compiler can't cache values in registers */
+                          );
+#endif
 }
 
 template <typename type, size_t size> 
