@@ -9,19 +9,11 @@ extern "C" {
 #endif
 /*
  * Class:     com_amazon_corretto_crypto_provider_EvpHmac
- * Method:    getContextSize
- * Signature: ()I
- */
-JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_EvpHmac_getContextSize
-  (JNIEnv *, jclass);
-
-/*
- * Class:     com_amazon_corretto_crypto_provider_EvpHmac
  * Method:    updateCtxArray
  * Signature: ([B[BJ[BII)V
  */
 JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpHmac_updateCtxArray
-  (JNIEnv *, jclass, jbyteArray, jbyteArray, jlong, jbyteArray, jint, jint);
+  (JNIEnv *, jclass, jlong, jlongArray, jint, jint, jbyteArray, jbyteArray, jint, jint);
 
 /*
  * Class:     com_amazon_corretto_crypto_provider_EvpHmac
@@ -29,7 +21,7 @@ JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpHmac_updateCt
  * Signature: ([B[B)V
  */
 JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpHmac_doFinal
-  (JNIEnv *, jclass, jbyteArray, jbyteArray);
+  (JNIEnv *, jclass, jlong, jbyteArray);
 
 /*
  * Class:     com_amazon_corretto_crypto_provider_EvpHmac
@@ -37,7 +29,7 @@ JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpHmac_doFinal
  * Signature: ([B[BJ[BII[B)V
  */
 JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpHmac_fastHmac
-  (JNIEnv *, jclass, jbyteArray, jbyteArray, jlong, jbyteArray, jint, jint, jbyteArray);
+  (JNIEnv *, jclass, jlong, jlongArray, jint, jint, jbyteArray, jbyteArray, jint, jint, jbyteArray);
 
 #ifdef __cplusplus
 }

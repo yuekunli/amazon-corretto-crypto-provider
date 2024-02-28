@@ -3,6 +3,8 @@
 #include "buffer.h"
 #include "env.h"
 #include "util.h"
+#include "auto_free.h"
+
 #include <openssl/hmac.h>
 #include <openssl/core_names.h>
 #include <openssl/evp.h>
@@ -12,13 +14,14 @@
 
 using namespace AmazonCorrettoCryptoProvider;
 
-// Some of the logic around how to manage arrays is non-standard because HMAC is extremely performance sensitive.
-// For the smaller data-sizes we're using, avoiding GetPrimitiveArrayCritical is worth it.
-
 namespace {
 
-    // We pass in keyArr as a jbyteArray to avoid even the minimimal JNI costs
-    // of wrapping it in a java_buffer when we don't need it.
+    char md5_name[] = "MD5";
+    char sha1_name[] = "SHA1";
+    char sha256_name[] = "SHA256";
+    char sha384_name[] = "SHA384";
+    char sha512_name[] = "SHA512";
+
 void maybe_init_ctx(raii_env& env, EVP_MAC_CTX** ctx, jbyteArray& keyArr, jint md_algo, jint instruction)
 {
     if (instruction == RESET_INPUT_KEEP_KEY_AND_MD)
@@ -33,31 +36,30 @@ void maybe_init_ctx(raii_env& env, EVP_MAC_CTX** ctx, jbyteArray& keyArr, jint m
         jni_borrow key(env, keyBuf, "key");
         
         OSSL_PARAM params[2], * p = params;
-        EVP_MAC* mac = NULL;
+        ossl_auto<EVP_MAC> mac;
 
         mac = EVP_MAC_fetch(NULL/*lib ctx*/, "HMAC", NULL/*prop queue*/);
+        *ctx = EVP_MAC_CTX_new(mac);
+
+
 
         switch (md_algo)
         {
         case 0:
-            char digest_name[] = "MD5";
-            *p++ = OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, digest_name, sizeof(digest_name));
+            *p++ = OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, md5_name, sizeof(md5_name));
+            // hopefully digest_name is copied into parameter, so when execution is out of this case block, i.e. digest name is destroied, parameter is still valid
             break;
         case 1:
-            char digest_name[] = "SHA1";
-            *p++ = OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, digest_name, sizeof(digest_name));
+            *p++ = OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, sha1_name, sizeof(sha1_name));
             break;
         case 2:
-            char digest_name[] = "SHA256";
-            * p++ = OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, digest_name, sizeof(digest_name));
+            * p++ = OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, sha256_name, sizeof(sha256_name));
             break;
         case 3:
-            char digest_name[] = "SHA384";
-            *p++ = OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, digest_name, sizeof(digest_name));
+            *p++ = OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, sha384_name, sizeof(sha384_name));
             break;
         case 4:
-            char digest_name[] = "SHA512";
-            *p++ = OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, digest_name, sizeof(digest_name));
+            *p++ = OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, sha512_name, sizeof(sha512_name));
             break;
         }
         *p = OSSL_PARAM_construct_end();
@@ -66,7 +68,7 @@ void maybe_init_ctx(raii_env& env, EVP_MAC_CTX** ctx, jbyteArray& keyArr, jint m
     }
 }
 
-void update_ctx(raii_env& env, EVP_MAC_CTX* ctx, jni_borrow& input)
+void add_input(raii_env& env, EVP_MAC_CTX* ctx, jni_borrow& input)
 {
     if (unlikely(EVP_MAC_update(ctx, input.data(), input.len()) != 1)) {
         throw_openssl("Unable to update HMAC_CTX");
@@ -83,8 +85,7 @@ void calculate_mac(raii_env& env, EVP_MAC_CTX* ctx, java_buffer& result)
     if (unlikely(EVP_MAC_final(ctx, scratch, &macSize, macSize) != 1)) {
         throw_openssl("Unable to update HMAC_CTX");
     }
-    // When we don't need to read the data in an array but use it strictly for output
-    // it can be faster to use put_bytes rather than convert it into a jni_borrow.
+
     result.put_bytes(env, scratch, 0, macSize);
 }
 }
@@ -92,19 +93,6 @@ void calculate_mac(raii_env& env, EVP_MAC_CTX* ctx, java_buffer& result)
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/*
- * Class:     com_amazon_corretto_crypto_provider_EvpHmac
- * Method:    getContextSize
- * Signature: ()I
- */
-/*
-JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_EvpHmac_getContextSize(JNIEnv*, jclass)
-{
-    return sizeof(HMAC_CTX);
-}
-*/
-
 
 /*
  * Class:     com_amazon_corretto_crypto_provider_EvpHmac
@@ -123,9 +111,11 @@ JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpHmac_updateCt
     jint offset, 
     jint len)
 {
-    EVP_MAC_CTX* ctx = NULL;
     try {
         raii_env env(pEnv);
+
+        ossl_auto<EVP_MAC_CTX> ctx;
+
         bool copyCtxPtrToJava = false;
 
         if (instruction == NEED_COMPLETE_REINITIALIZE || instruction == RESET_INPUT_KEEP_KEY_AND_MD)
@@ -135,19 +125,19 @@ JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpHmac_updateCt
         }
         else
         {
-            EVP_MAC_CTX* ctx = reinterpret_cast<EVP_MAC_CTX*>(ctxPtr);
+            ctx = reinterpret_cast<EVP_MAC_CTX*>(ctxPtr);
         }
 
         java_buffer inputBuf = java_buffer::from_array(env, inputArr, offset, len);
         jni_borrow input(env, inputBuf, "input");
-        update_ctx(env, ctx, input);
+        add_input(env, ctx, input);
 
         if (copyCtxPtrToJava)
         {
-            jlong tmpPtr = reinterpret_cast<jlong>(ctx);
+            jlong tmpPtr = reinterpret_cast<jlong>(ctx.take());
             env->SetLongArrayRegion(ctxOut, 0 /* start position */, 1 /* number of elements */, &tmpPtr);
         }
-
+        ctx.releaseOwnership();
 
     } catch (java_ex& ex) {
         ex.throw_to_java(pEnv);
@@ -192,13 +182,10 @@ JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpHmac_fastHmac
     jint len,
     jbyteArray resultArr)
 {
-    // We do not depend on the other methods because it results in more use to JNI than we want and lower performance
-
-    EVP_MAC_CTX* ctx = NULL;
-
     try {
         raii_env env(pEnv);
 
+        ossl_auto<EVP_MAC_CTX> ctx;
         bool copyCtxPtrToJava = false;
 
         java_buffer inputBuf = java_buffer::from_array(env, inputArr, offset, len);
@@ -213,20 +200,17 @@ JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpHmac_fastHmac
         {
             ctx = reinterpret_cast<EVP_MAC_CTX*>(ctxPtr);
         }
-        {
-            jni_borrow input(env, inputBuf, "input");
-            update_ctx(env, ctx, input);
-        }
-        {
-            calculate_mac(env, ctx, resultBuf);
-        }
+
+        jni_borrow input(env, inputBuf, "input");
+        add_input(env, ctx, input);
+        calculate_mac(env, ctx, resultBuf);
 
         if (copyCtxPtrToJava)
         {
-            jlong tmpPtr = reinterpret_cast<jlong>(ctx);
+            jlong tmpPtr = reinterpret_cast<jlong>(ctx.take());
             env->SetLongArrayRegion(ctxOut, 0 /* start position */, 1 /* number of elements */, &tmpPtr);
         }
-
+        ctx.releaseOwnership();
     } catch (java_ex& ex) {
         ex.throw_to_java(pEnv);
     }

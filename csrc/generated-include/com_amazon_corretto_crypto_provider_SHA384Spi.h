@@ -13,23 +13,7 @@ extern "C" {
  * Signature: ([B[BI)V
  */
 JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_SHA384Spi_fastDigest
-  (JNIEnv *, jclass, jbyteArray, jbyteArray, jint);
-
-/*
- * Class:     com_amazon_corretto_crypto_provider_SHA384Spi
- * Method:    getHashSize
- * Signature: ()I
- */
-JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_SHA384Spi_getHashSize
-  (JNIEnv *, jclass);
-
-/*
- * Class:     com_amazon_corretto_crypto_provider_SHA384Spi
- * Method:    getContextSize
- * Signature: ()I
- */
-JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_SHA384Spi_getContextSize
-  (JNIEnv *, jclass);
+  (JNIEnv *, jclass, jbyteArray, jbyteArray, jint, jint);
 
 /*
  * Class:     com_amazon_corretto_crypto_provider_SHA384Spi
@@ -37,7 +21,7 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_SHA384Spi_getCon
  * Signature: ([B)V
  */
 JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_SHA384Spi_initContext
-  (JNIEnv *, jclass, jbyteArray);
+  (JNIEnv *, jclass, jlongArray);
 
 /*
  * Class:     com_amazon_corretto_crypto_provider_SHA384Spi
@@ -45,7 +29,7 @@ JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_SHA384Spi_initCo
  * Signature: ([B[BII)V
  */
 JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_SHA384Spi_updateContextByteArray
-  (JNIEnv *, jclass, jbyteArray, jbyteArray, jint, jint);
+  (JNIEnv *, jclass, jlong, jbyteArray, jint, jint);
 
 /*
  * Class:     com_amazon_corretto_crypto_provider_SHA384Spi
@@ -53,7 +37,7 @@ JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_SHA384Spi_update
  * Signature: ([BLjava/nio/ByteBuffer;)V
  */
 JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_SHA384Spi_updateNativeByteBuffer
-  (JNIEnv *, jclass, jbyteArray, jobject);
+  (JNIEnv *, jclass, jlong, jobject);
 
 /*
  * Class:     com_amazon_corretto_crypto_provider_SHA384Spi
@@ -61,7 +45,7 @@ JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_SHA384Spi_update
  * Signature: ([B[BI)V
  */
 JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_SHA384Spi_finish
-  (JNIEnv *, jclass, jbyteArray, jbyteArray, jint);
+  (JNIEnv *, jclass, jlong, jbyteArray, jint);
 
 #ifdef __cplusplus
 }

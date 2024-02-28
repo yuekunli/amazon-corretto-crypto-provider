@@ -39,7 +39,7 @@ private:
     }
 
 public:
-    explicit BigNumObj()
+    explicit BigNumObj() // when BigNumObj is cast to BIGNUM*, ensure_init is called and that instantiates a BIGNUM object whose value is set to zero.
         : m_pBN(NULL)
     {
     }
@@ -128,7 +128,7 @@ public:
 #endif
 };
 
-inline static BigNumObj bn_zero() { return BigNumObj(); }
+inline static BigNumObj bn_new_zero() { return BigNumObj(); }
 inline static bool  BN_null_or_zero(const BIGNUM* bn) { return nullptr == bn || BN_is_zero(bn); }
 
 } // namespace AmazonCorrettoCryptoProvider

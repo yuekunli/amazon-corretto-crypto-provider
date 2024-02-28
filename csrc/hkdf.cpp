@@ -2,34 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "buffer.h"
 #include "env.h"
-#include "generated-headers.h"
+#include "auto_free.h"
 #include <openssl/evp.h>
 #include <openssl/kdf.h>
 #include <openssl/core_names.h>
-//#include <openssl/crypto.h>
-//#include <openssl/obj_mac.h>
-//#include <openssl/params.h>
+#include <openssl/params.h>
 
 using namespace AmazonCorrettoCryptoProvider;
 
-// The possible values of digestCode are defined in HkdfSecretKeyFactorySpi.java
-/*
-static EVP_MD const* digest_code_to_EVP_MD(int digestCode)
-{
-    switch (digestCode) {
-    case com_amazon_corretto_crypto_provider_HkdfSecretKeyFactorySpi_SHA1_CODE:
-        return EVP_sha1();
-    case com_amazon_corretto_crypto_provider_HkdfSecretKeyFactorySpi_SHA256_CODE:
-        return EVP_sha256();
-    case com_amazon_corretto_crypto_provider_HkdfSecretKeyFactorySpi_SHA384_CODE:
-        return EVP_sha384();
-    case com_amazon_corretto_crypto_provider_HkdfSecretKeyFactorySpi_SHA512_CODE:
-        return EVP_sha512();
-    default:
-        throw java_ex(EX_ERROR, "THIS SHOULD NOT BE REACHABLE.");
-    }
-}
-*/
+static char md5_name[] = "MD5";
+static char sha1_name[] = "SHA1";
+static char sha256_name[] = "SHA256";
+static char sha384_name[] = "SHA384";
+static char sha512_name[] = "SHA512";
 
 static void initialize_evp_kdf(EVP_KDF** kdf, EVP_KDF_CTX** ctx, int digestCode, OSSL_PARAM **p)
 {
@@ -40,20 +25,20 @@ static void initialize_evp_kdf(EVP_KDF** kdf, EVP_KDF_CTX** ctx, int digestCode,
     switch (digestCode)
     {
     case com_amazon_corretto_crypto_provider_HkdfSecretKeyFactorySpi_SHA1_CODE:
-        char hash[7] = "SHA1";
-        **p = OSSL_PARAM_construct_utf8_string(OSSL_KDF_PARAM_DIGEST, hash, 0);
+        
+        **p = OSSL_PARAM_construct_utf8_string(OSSL_KDF_PARAM_DIGEST, sha1_name, sizeof(sha1_name));
         break;
     case com_amazon_corretto_crypto_provider_HkdfSecretKeyFactorySpi_SHA256_CODE:
-        char hash[7] = "SHA256";
-        **p = OSSL_PARAM_construct_utf8_string(OSSL_KDF_PARAM_DIGEST, hash, 0);
+        
+        **p = OSSL_PARAM_construct_utf8_string(OSSL_KDF_PARAM_DIGEST, sha256_name, sizeof(sha256_name));
         break;
     case com_amazon_corretto_crypto_provider_HkdfSecretKeyFactorySpi_SHA384_CODE:
-        char hash[7] = "SHA384";
-        **p = OSSL_PARAM_construct_utf8_string(OSSL_KDF_PARAM_DIGEST, hash, 0);
+        
+        **p = OSSL_PARAM_construct_utf8_string(OSSL_KDF_PARAM_DIGEST, sha384_name, sizeof(sha384_name));
         break;
     case com_amazon_corretto_crypto_provider_HkdfSecretKeyFactorySpi_SHA512_CODE:
-        char hash[7] = "SHA512";
-        **p = OSSL_PARAM_construct_utf8_string(OSSL_KDF_PARAM_DIGEST, hash, 0);
+        
+        **p = OSSL_PARAM_construct_utf8_string(OSSL_KDF_PARAM_DIGEST, sha512_name, sizeof(sha512_name));
         break;
     default:
         throw java_ex(EX_ERROR, "Invalid hash algorithm in HKDF");
@@ -73,12 +58,13 @@ extern "C" JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_HkdfS
     jbyteArray jInfo,
     jint infoLen)
 {
-    EVP_KDF* kdf = NULL;
-    EVP_KDF_CTX* ctx = NULL;
-
-    OSSL_PARAM params[6], * p = params;
-
     try {
+
+        ossl_auto<EVP_KDF> kdf;
+        ossl_auto<EVP_KDF_CTX> ctx;
+
+        OSSL_PARAM params[6], * p = params;
+        
         JByteArrayCritical output(env, jOutput);
         JByteArrayCritical secret(env, jSecret);
         JByteArrayCritical salt(env, jSalt);
@@ -100,23 +86,7 @@ extern "C" JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_HkdfS
 
         EVP_KDF_derive(ctx, output.get(), outputLen, params);
 
-        /*
-        if (HKDF(output.get(), outputLen, digest, secret.get(), secretLen, salt.get(), saltLen, info.get(), infoLen)
-            != 1) {
-            throw_openssl(EX_RUNTIME_CRYPTO, "HKDF failed.");
-        }
-        */
-        EVP_KDF_CTX_free(ctx);
-        EVP_KDF_free(kdf);
-
     } catch (java_ex& ex) {
-
-        if (ctx != NULL)
-            EVP_KDF_CTX_free(ctx);
-
-        if (kdf != NULL)
-            EVP_KDF_free(kdf);
-
         ex.throw_to_java(env);
     }
 }
@@ -132,12 +102,12 @@ extern "C" JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_HkdfS
     jbyteArray jSalt,
     jint saltLen)
 {
-    EVP_KDF* kdf = NULL;
-    EVP_KDF_CTX* ctx = NULL;
-
-    OSSL_PARAM params[5], * p = params;
-
     try {
+        ossl_auto<EVP_KDF> kdf;
+        ossl_auto<EVP_KDF_CTX> ctx;
+
+        OSSL_PARAM params[5], * p = params;
+
         JByteArrayCritical output(env, jOutput);
         JByteArrayCritical secret(env, jSecret);
         JByteArrayCritical salt(env, jSalt);
@@ -161,24 +131,7 @@ extern "C" JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_HkdfS
 
         EVP_KDF_derive(ctx, output.get(), outputLen, params);
 
-        /*
-        if (HKDF_extract(output.get(), &out_len, digest, secret.get(), secretLen, salt.get(), saltLen) != 1) {
-            throw_openssl(EX_RUNTIME_CRYPTO, "HKDF_extract failed.");
-        }
-        assert(out_len == EVP_MD_size(digest) && out_len == outputLen);
-        */
-
-        EVP_KDF_CTX_free(ctx);
-        EVP_KDF_free(kdf);
-
     } catch (java_ex& ex) {
-
-        if (ctx != NULL)
-            EVP_KDF_CTX_free(ctx);
-
-        if (kdf != NULL)
-            EVP_KDF_free(kdf);
-
         ex.throw_to_java(env);
     }
 }
@@ -194,12 +147,12 @@ extern "C" JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_HkdfS
     jbyteArray jInfo,
     jint infoLen)
 {
-    EVP_KDF* kdf = NULL;
-    EVP_KDF_CTX* ctx = NULL;
-
-    OSSL_PARAM params[5], * p = params;
-
     try {
+        ossl_auto<EVP_KDF> kdf;
+        ossl_auto<EVP_KDF_CTX> ctx;
+        
+        OSSL_PARAM params[5], * p = params;
+
         JByteArrayCritical output(env, jOutput);
         JByteArrayCritical prk(env, jPrk);
         JByteArrayCritical info(env, jInfo);
@@ -218,23 +171,7 @@ extern "C" JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_HkdfS
 
         EVP_KDF_derive(ctx, output.get(), outputLen, params);
 
-        /*
-        if (HKDF_expand(output.get(), outputLen, digest, prk.get(), prkLen, info.get(), infoLen) != 1) {
-            throw_openssl(EX_RUNTIME_CRYPTO, "HKDF_expand failed.");
-        }
-        */
-
-        EVP_KDF_CTX_free(ctx);
-        EVP_KDF_free(kdf);
-
     } catch (java_ex& ex) {
-
-        if (ctx != NULL)
-            EVP_KDF_CTX_free(ctx);
-
-        if (kdf != NULL)
-            EVP_KDF_free(kdf);
-
         ex.throw_to_java(env);
     }
 }

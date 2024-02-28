@@ -5,6 +5,7 @@
 #include "env.h"
 #include "keyutils.h"
 #include "util.h"
+#include "auto_free.h"
 
 using namespace AmazonCorrettoCryptoProvider;
 
@@ -53,25 +54,6 @@ JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_Utils_getNative
     return diff;
 }
 
-
-static const EVP_MD* digestFromJstring(raii_env& env, jstring digestName)
-{
-    if (!digestName) {
-        throw_java_ex(EX_RUNTIME_CRYPTO, "Null Digest name");
-        return NULL;
-    }
-    jni_string name(env, digestName);
-    //const EVP_MD* result = EVP_get_digestbyname(name.native_str);
-    const EVP_MD* result = EVP_MD_fetch(NULL/*lib ctx*/, name.native_str, NULL/*prop queue*/);
-
-    if (!result) {
-        throw_openssl("Unable to get digest");
-    }
-
-    return result;
-}
-
-
 /*
  * Class:     com_amazon_corretto_crypto_provider_Utils
  * Method:    getEvpMdFromName
@@ -82,7 +64,13 @@ JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_Utils_getEvpMdF
 {
     try {
         raii_env env(pEnv);
-        return reinterpret_cast<jlong>(digestFromJstring(env, mdName));
+        if (!mdName) {
+            throw_java_ex(EX_RUNTIME_CRYPTO, "Null Digest name");
+            return NULL;
+        }
+        jni_string name(env, mdName);
+        ossl_auto<EVP_MD> md = EVP_MD_fetch(NULL/*lib ctx*/, name.native_str, NULL/*prop queue*/);
+        return reinterpret_cast<jlong>(md.take());
     } catch (java_ex& ex) {
         ex.throw_to_java(pEnv);
         return 0;

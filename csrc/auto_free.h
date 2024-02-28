@@ -3,7 +3,10 @@
 #ifndef AUTO_FREE_H
 #define AUTO_FREE_H
 
-//#include "jni_md.h"
+#include "jni_md.h"
+
+#include "env.h"
+#include "util.h"
 
 #include <openssl/evp.h>
 #include <openssl/encoder.h>
@@ -11,7 +14,10 @@
 #include <openssl/params.h>
 #include <openssl/param_build.h>
 #include <openssl/asn1.h>
+#include <openssl/kdf.h>
+#include <openssl/x509.h>
 
+using namespace AmazonCorrettoCryptoProvider;
 
 template<typename T>
 class ossl_auto
@@ -43,12 +49,17 @@ public:
         move(other);
         return *this;
     }
+
+    ossl_auto(T* _ptr)
+    {
+        ptr = _ptr;
+    }
     
-    ossl_auto<T>& operator=(const T*)
+    ossl_auto<T>& operator=(T* _ptr)
     {
         if (isInitialized())
             throw_java_ex(EX_RUNTIME_CRYPTO, "reassigning, loosing pointer without freeing");
-        ptr = T;
+        ptr = _ptr;
         return *this;
     }
     
@@ -126,105 +137,60 @@ public:
     }
 };
 
-template<>
-void ossl_auto<EVP_CIPHER>::clear()
-{
-    if (ptr != NULL)
-        EVP_CIPHER_free(ptr);
-    ptr = NULL;
-}
 
 template<>
-void ossl_auto<EVP_CIPHER_CTX>::clear()
-{
-    if (ptr != NULL)
-        EVP_CIPHER_CTX_free(ptr);
-    ptr = NULL;
-}
+void ossl_auto<EVP_CIPHER>::clear();
 
 template<>
-void ossl_auto<EVP_PKEY>::clear()
-{
-    if (ptr != NULL)
-    EVP_PKEY_free(ptr);
-    ptr = NULL;
-}
+void ossl_auto<EVP_CIPHER_CTX>::clear();
 
 template<>
-void ossl_auto<EVP_PKEY_CTX>::clear()
-{
-    if (ptr != NULL)
-    EVP_PKEY_CTX_free(ptr);
-    ptr = NULL;
-}
+void ossl_auto<EVP_PKEY>::clear();
 
 template<>
-void ossl_auto<EVP_MD_CTX>::clear()
-{
-    if (ptr != NULL)
-    EVP_MD_CTX_free(ptr);
-    ptr = NULL;
-}
+void ossl_auto<EVP_PKEY_CTX>::clear();
 
 template<>
-void ossl_auto<OSSL_ENCODER_CTX>::clear()
-{
-    if (ptr != NULL)
-    OSSL_ENCODER_CTX_free(ptr);
-    ptr = NULL;
-}
+void ossl_auto<PKCS8_PRIV_KEY_INFO>::clear();
 
 template<>
-void ossl_auto<OSSL_DECODER_CTX>::clear()
-{
-    if (ptr != NULL)
-    OSSL_DECODER_CTX_free(ptr);
-    ptr = NULL;
-}
+void ossl_auto<EVP_MD_CTX>::clear();
 
 template<>
-void ossl_auto<OSSL_PARAM>::clear()
-{
-    if (ptr != NULL)
-    OSSL_PARAM_free(ptr);
-    ptr = NULL;
-}
+void ossl_auto<EVP_MAC_CTX>::clear();
 
 template<>
-void ossl_auto<OSSL_PARAM_BLD>::clear()
-{
-    if (ptr != NULL)
-    OSSL_PARAM_BLD_free(ptr);
-    ptr = NULL;
-}
+void ossl_auto<EVP_MAC>::clear();
 
 template<>
-void ossl_auto<ASN1_OBJECT>::clear()
-{
-    if (ptr != NULL)
-    ASN1_OBJECT_free(ptr);
-    ptr = NULL;
-}
+void ossl_auto<EVP_KDF>::clear();
 
 template<>
-void ossl_auto<unsigned char>::clear()
-{
-    if (ptr != NULL)
-    OPENSSL_free(ptr);
-    ptr = NULL;
-}
+void ossl_auto<EVP_KDF_CTX>::clear();
+
+template<>
+void ossl_auto<OSSL_ENCODER_CTX>::clear();
+
+template<>
+void ossl_auto<OSSL_DECODER_CTX>::clear();
+
+template<>
+void ossl_auto<OSSL_PARAM>::clear();
+
+template<>
+void ossl_auto<OSSL_PARAM_BLD>::clear();
+
+template<>
+void ossl_auto<ASN1_OBJECT>::clear();
+
+template<>
+void ossl_auto<unsigned char>::clear();
 
 
 template<>
-ossl_auto<unsigned char>::operator jbyte* ()
-{
-    return reinterpret_cast<jbyte*>(ptr);
-}
+ossl_auto<unsigned char>::operator jbyte* ();
 
 template<>
-ossl_auto<unsigned char>::operator jbyte* () const
-{
-    return reinterpret_cast<jbyte*>(ptr);
-}
+ossl_auto<unsigned char>::operator jbyte* () const;
 
 #endif

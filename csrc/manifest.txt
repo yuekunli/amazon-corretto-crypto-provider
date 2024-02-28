@@ -18,6 +18,15 @@ Infrastructure:
 	util.h                 java class path, Host<-->BigEndien, retrieve OpenSSL error message, secureZero, SecureBuffer fast_xor, check_bounds
 	util_class.cpp         get native buffer offset, get EVP MD, get EVP MD size
 
+	+---------------------+
+	|  jni env            |
+	|  error & exception  |
+	|  buffer             |
+	|  macros             |
+	|  auto template      |
+	|  utils              |
+	+---------------------+
+
 
 Library:
 

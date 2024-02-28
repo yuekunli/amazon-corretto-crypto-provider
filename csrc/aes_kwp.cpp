@@ -11,6 +11,10 @@
 
 using namespace AmazonCorrettoCryptoProvider;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_AesKeyWrapPaddingSpi_wrapKey(JNIEnv* pEnv,
     jclass,
     jbyteArray keyArray,
@@ -53,7 +57,7 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_AesKeyWrapPaddin
         default:
             throw_openssl(EX_RUNTIME_CRYPTO, "unrecognized AES key size");
         }
-               
+
         EVP_EncryptInit_ex2(ctx, cipher, (uint8_t*)keybuf, NULL, NULL/*params*/);  // can IV be null?
 
         jni_borrow inbuf(env, input, "input");
@@ -67,7 +71,8 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_AesKeyWrapPaddin
         outlen += tmplen;
 
         return outlen;
-    } catch (java_ex& ex) {
+    }
+    catch (java_ex& ex) {
         ex.throw_to_java(pEnv);
         return 0;
     }
@@ -129,8 +134,13 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_AesKeyWrapPaddin
         outlen += tmplen;
 
         return outlen;
-    } catch (java_ex& ex) {
+    }
+    catch (java_ex& ex) {
         ex.throw_to_java(pEnv);
         return 0;
     }
 }
+
+#ifdef __cplusplus
+}
+#endif

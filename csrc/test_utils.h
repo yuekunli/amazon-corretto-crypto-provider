@@ -25,12 +25,13 @@ bool test_suite_success = true;
         name();                                                                                                        \
         const char* file;                                                                                              \
         int line;                                                                                                      \
-        unsigned long unhandledError = ERR_get_error_line(&file, &line);                                               \
+        const char* func;                                                                                              \
+        unsigned long unhandledError = ERR_get_error_all(&file, &line, &func, NULL, NULL);                             \
         while (unhandledError) {                                                                                       \
             test_succeeded = false;                                                                                    \
             std::cerr << "Found unhandled openssl error: " << formatOpensslError(unhandledError, "NO_TEXT");           \
-            std::cerr << " @ " << file << ":" << line << std::endl;                                                    \
-            unhandledError = ERR_get_error_line(&file, &line);                                                         \
+            std::cerr << " @ " << file << ":" << line << " : " << func << std::endl;                                   \
+            unhandledError = ERR_get_error_all(&file, &line, &func, NULL, NULL);                                       \
         }                                                                                                              \
         if (test_succeeded) {                                                                                          \
             printf("ok\n");                                                                                            \

@@ -148,6 +148,8 @@ void bufferUpdate(JNIEnv* pEnv, EvpKeyContext* ctx, EVP_GENERIC_UPDATE_t func, j
 
 } // Anonymous namespace
 
+extern "C" {
+
 JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpSignature_signStart(JNIEnv* pEnv,
     jclass,
     jlong pKey,
@@ -561,4 +563,6 @@ JNIEXPORT jboolean JNICALL Java_com_amazon_corretto_crypto_provider_EvpSignature
         ex.throw_to_java(pEnv);
         return false;
     }
+}
+
 }

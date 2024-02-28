@@ -22,7 +22,7 @@ bool libCryptoRngGenerateRandomBytes(uint8_t* buf, int len) noexcept
  * Method:    generate
  * Signature: ([BII)V
  */
-JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_LibCryptoRng_generate(
+extern "C" JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_LibCryptoRng_generate(
     JNIEnv* pEnv, jclass, jbyteArray byteArray, jint offset, jint length)
 {
     try {

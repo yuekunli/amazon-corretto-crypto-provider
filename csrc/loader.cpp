@@ -28,12 +28,12 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved)
     return JNI_VERSION_1_4;
 }
 
-JNIEXPORT jboolean JNICALL Java_com_amazon_corretto_crypto_provider_Loader_isFipsMode(JNIEnv*, jclass)
+extern "C" JNIEXPORT jboolean JNICALL Java_com_amazon_corretto_crypto_provider_Loader_isFipsMode(JNIEnv*, jclass)
 {
     return JNI_TRUE;
 }
 
-JNIEXPORT jstring JNICALL Java_com_amazon_corretto_crypto_provider_Loader_getNativeLibraryVersion(JNIEnv* pEnv, jclass)
+extern "C" JNIEXPORT jstring JNICALL Java_com_amazon_corretto_crypto_provider_Loader_getNativeLibraryVersion(JNIEnv* pEnv, jclass)
 {
     try {
         raii_env env(pEnv);
@@ -45,7 +45,7 @@ JNIEXPORT jstring JNICALL Java_com_amazon_corretto_crypto_provider_Loader_getNat
     }
 }
 
-JNIEXPORT jboolean JNICALL Java_com_amazon_corretto_crypto_provider_Loader_validateLibcryptoVersion(
+extern "C" JNIEXPORT jboolean JNICALL Java_com_amazon_corretto_crypto_provider_Loader_validateLibcryptoVersion(
     JNIEnv* pEnv, jclass, jboolean jFuzzyMatch)
 {
     bool fuzzyMatch = (jFuzzyMatch == JNI_TRUE);
