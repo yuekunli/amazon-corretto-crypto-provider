@@ -4,6 +4,7 @@
 #include "env.h"
 
 #include <openssl/crypto.h>
+#include <openssl/opensslv.h>
 
 
 // https://www.openssl.org/docs/man1.1.1/man3/OPENSSL_VERSION_NUMBER.html
@@ -38,7 +39,7 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_amazon_corretto_crypto_provider_Lo
     try {
         raii_env env(pEnv);
 
-        return env->NewStringUTF(STRINGIFY(PROVIDER_VERSION_STRING));
+        return env->NewStringUTF("2.3.1"/*STRINGIFY(PROVIDER_VERSION_STRING)*/);
     } catch (java_ex& ex) {
         ex.throw_to_java(pEnv);
         return NULL;
@@ -51,7 +52,7 @@ extern "C" JNIEXPORT jboolean JNICALL Java_com_amazon_corretto_crypto_provider_L
     bool fuzzyMatch = (jFuzzyMatch == JNI_TRUE);
 
     try {
-        unsigned long libcrypto_compiletime_version = OPENSSL_VERSION_NUMBER;
+        unsigned long libcrypto_compiletime_version = OPENSSL_VERSION_NUMBER; // defined in OpenSSL opensslv.h
         unsigned long libcrypto_runtime_version = OpenSSL_version_num();
 
         if (fuzzyMatch) {

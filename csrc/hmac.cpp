@@ -41,8 +41,6 @@ void maybe_init_ctx(raii_env& env, EVP_MAC_CTX** ctx, jbyteArray& keyArr, jint m
         mac = EVP_MAC_fetch(NULL/*lib ctx*/, "HMAC", NULL/*prop queue*/);
         *ctx = EVP_MAC_CTX_new(mac);
 
-
-
         switch (md_algo)
         {
         case 0:
@@ -118,19 +116,26 @@ JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpHmac_updateCt
 
         bool copyCtxPtrToJava = false;
 
-        if (instruction == NEED_COMPLETE_REINITIALIZE || instruction == RESET_INPUT_KEEP_KEY_AND_MD)
+        if (instruction == NEED_COMPLETE_REINITIALIZE)
         {
-            copyCtxPtrToJava = (instruction == NEED_COMPLETE_REINITIALIZE);
+            copyCtxPtrToJava = true;
             maybe_init_ctx(env, &ctx, keyArr, digest_code, instruction);
         }
-        else
+        else if (instruction == RESET_INPUT_KEEP_KEY_AND_MD)
+        {
+            ctx = reinterpret_cast<EVP_MAC_CTX*>(ctxPtr);
+            maybe_init_ctx(env, &ctx, keyArr, digest_code, instruction);
+        }
+        else  // continuous update
         {
             ctx = reinterpret_cast<EVP_MAC_CTX*>(ctxPtr);
         }
-
-        java_buffer inputBuf = java_buffer::from_array(env, inputArr, offset, len);
-        jni_borrow input(env, inputBuf, "input");
-        add_input(env, ctx, input);
+        
+        {
+            java_buffer inputBuf = java_buffer::from_array(env, inputArr, offset, len);
+            jni_borrow input(env, inputBuf, "input");
+            add_input(env, ctx, input);
+        } // braces defining a scope, jni_borrow is destructed in a timely manner.
 
         if (copyCtxPtrToJava)
         {
@@ -191,19 +196,26 @@ JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpHmac_fastHmac
         java_buffer inputBuf = java_buffer::from_array(env, inputArr, offset, len);
         java_buffer resultBuf = java_buffer::from_array(env, resultArr);
 
-        if (instruction == NEED_COMPLETE_REINITIALIZE || instruction == RESET_INPUT_KEEP_KEY_AND_MD)
+        if (instruction == NEED_COMPLETE_REINITIALIZE)
         {
-            copyCtxPtrToJava = (instruction == NEED_COMPLETE_REINITIALIZE);
+            copyCtxPtrToJava = true;
             maybe_init_ctx(env, &ctx, keyArr, digestCode, instruction);
         }
-        else
+        else if (instruction == RESET_INPUT_KEEP_KEY_AND_MD)
+        {
+            ctx = reinterpret_cast<EVP_MAC_CTX*>(ctxPtr);
+            maybe_init_ctx(env, &ctx, keyArr, digestCode, instruction);
+        }
+        else // continuous update
         {
             ctx = reinterpret_cast<EVP_MAC_CTX*>(ctxPtr);
         }
 
-        jni_borrow input(env, inputBuf, "input");
-        add_input(env, ctx, input);
-        calculate_mac(env, ctx, resultBuf);
+        { // this pair of braces set up a scope so that jni_borrow is destructed when out of scope, so that env is not locked anymore, so that I can call other JNI functions
+            jni_borrow input(env, inputBuf, "input");
+            add_input(env, ctx, input);
+            calculate_mac(env, ctx, resultBuf);
+        }
 
         if (copyCtxPtrToJava)
         {

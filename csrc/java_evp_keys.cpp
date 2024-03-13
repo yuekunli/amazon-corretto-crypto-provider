@@ -170,9 +170,9 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpK
 
         java_buffer paramsBuff = java_buffer::from_array(env, paramsArr);
         size_t paramsLength = paramsBuff.len();
-        jni_borrow borrow(env, paramsBuff, "params");
+        jni_borrow paramsBorrow(env, paramsBuff, "params");
 
-        const unsigned char* derPtr = borrow.data();
+        const unsigned char* derPtr = paramsBorrow.data();
         const unsigned char* derMutablePtr = derPtr;
 
         ossl_auto<EVP_PKEY> params_as_pkey;
@@ -184,11 +184,18 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpK
         const char* structure = "type-specific";
         decoder_ctx = OSSL_DECODER_CTX_new_for_pkey(&params_as_pkey, "DER", structure, "EC", selection, NULL/*lib ctx*/, NULL/*prop queue*/);
         OSSL_DECODER_from_data(decoder_ctx, &derMutablePtr, &paramsLength);
-        OSSL_DECODER_CTX_free(decoder_ctx);
         
         pkey_ctx = EVP_PKEY_CTX_new_from_pkey(NULL/*lib ctx*/, params_as_pkey, NULL/*prop queue*/);
 
+
+        char curve_name[80];
+        size_t curve_name_length;
+
+        EVP_PKEY_get_utf8_string_param(params_as_pkey, OSSL_PKEY_PARAM_GROUP_NAME, curve_name, sizeof(curve_name), &curve_name_length);
+
         EVP_PKEY_fromdata_init(pkey_ctx);
+
+        paramsBorrow.release();
 
         ossl_auto<OSSL_PARAM_BLD> incremental_params;
         ossl_auto<OSSL_PARAM> params;
@@ -203,7 +210,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpK
             BIGNUM* priv_key = NULL;
 
             priv_key = BN_bin2bn(priv_key_borrow.data(), priv_key_buff_len, NULL);
-
+            OSSL_PARAM_BLD_push_utf8_string(incremental_params, OSSL_PKEY_PARAM_GROUP_NAME, curve_name, curve_name_length);
             OSSL_PARAM_BLD_push_BN(incremental_params, OSSL_PKEY_PARAM_PRIV_KEY, priv_key);
 
             params = OSSL_PARAM_BLD_to_param(incremental_params);
@@ -214,7 +221,8 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpK
 
             if (shouldCheckPrivate)
             {
-                int check_ret = EVP_PKEY_private_check(pkey_ctx);
+                ossl_auto<EVP_PKEY_CTX> check_key_ctx = EVP_PKEY_CTX_new_from_pkey(NULL/*lib context*/, pkey, NULL/*prop queue*/);
+                int check_ret = EVP_PKEY_private_check(check_key_ctx);
                 // check check_ret
             }
 
@@ -226,21 +234,89 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpK
         if (wxArr && wyArr)
         {
             java_buffer pub_key_x = java_buffer::from_array(env, wxArr);
-            size_t pub_key_x_len = pub_key_x.len();
-            jni_borrow qx_borrow = jni_borrow(env, pub_key_x, "pubkeyx");
 
             java_buffer pub_key_y = java_buffer::from_array(env, wyArr);
+
+            size_t pub_key_x_len = pub_key_x.len();
+
             size_t pub_key_y_len = pub_key_y.len();
+
+            jni_borrow qx_borrow = jni_borrow(env, pub_key_x, "pubkeyx");
+            
             jni_borrow qy_borrow = jni_borrow(env, pub_key_y, "pubkeyy");
+
+
+#ifdef APPROACH_1
+            unsigned char x_first_byte = qx_borrow[0];
+            unsigned char y_first_byte = qy_borrow[0];
+            if (x_first_byte == 0)
+                pub_key_x_len--;
+            if (y_first_byte == 0)
+                pub_key_y_len--;
 
             size_t pub_key_len = pub_key_x_len + pub_key_y_len + 1;
             unsigned char* ptr = (unsigned char*)malloc(pub_key_len);
             ptr[0] = 0x04; // uncompressed
-            memcpy(ptr + 1, qx_borrow.data(), pub_key_x_len);
-            memcpy(ptr + 1 + pub_key_x_len, qy_borrow.data(), pub_key_y_len);
+            if (x_first_byte != 0)
+                memcpy(ptr + 1, qx_borrow.data(), pub_key_x_len);
+            else
+                memcpy(ptr + 1, qx_borrow.data()+1, pub_key_x_len);
 
-            OSSL_PARAM_BLD_push_octet_string(incremental_params, OSSL_PKEY_PARAM_PUB_KEY, ptr, pub_key_len);
+            if (y_first_byte != 0)
+                memcpy(ptr + 1 + pub_key_x_len, qy_borrow.data(), pub_key_y_len);
+            else
+                memcpy(ptr + 1 + pub_key_x_len, qy_borrow.data()+1, pub_key_y_len);
+
             OSSL_PARAM_BLD_push_utf8_string(incremental_params, OSSL_PKEY_PARAM_EC_POINT_CONVERSION_FORMAT, "uncompressed", 0);
+            
+#endif
+
+#ifdef APPROACH_2
+
+            unsigned char x_first_byte = qx_borrow[0];
+            unsigned char y_first_byte = qy_borrow[0];
+            if (x_first_byte == 0)
+                pub_key_x_len--;
+            size_t pub_key_len = pub_key_x_len +  1;
+            unsigned char* ptr = (unsigned char*)malloc(pub_key_len);
+            if (y_first_byte == 0)
+                ptr[0] = 0x03;
+            else
+                ptr[0] = 0x02;
+
+            if (x_first_byte != 0)
+                memcpy(ptr + 1, qx_borrow.data(), pub_key_x_len);
+            else
+                memcpy(ptr + 1, qx_borrow.data() + 1, pub_key_x_len);
+
+#endif
+
+
+            unsigned char x_first_byte = qx_borrow[0];
+            unsigned char y_first_byte = qy_borrow[0];
+            if (x_first_byte == 0)
+                pub_key_x_len--;
+            size_t pub_key_len = pub_key_x_len + 1;
+            unsigned char* ptr = (unsigned char*)malloc(pub_key_len);
+            if (y_first_byte == 0)
+                ptr[0] = 0x02;
+            else
+            {
+                if ((y_first_byte & 0x80) == 0)
+                    ptr[0] = 0x02;
+                else
+                    ptr[0] = 0x03;
+            }
+            if (x_first_byte != 0)
+                memcpy(ptr + 1, qx_borrow.data(), pub_key_x_len);
+            else
+                memcpy(ptr + 1, qx_borrow.data() + 1, pub_key_x_len);
+
+            OSSL_PARAM_BLD_push_utf8_string(incremental_params, OSSL_PKEY_PARAM_GROUP_NAME, curve_name, curve_name_length);
+
+            //The string that buf points to is stored by reference and must remain in scope until after OSSL_PARAM_BLD_to_param() has been called.
+                        
+            OSSL_PARAM_BLD_push_octet_string(incremental_params, OSSL_PKEY_PARAM_PUB_KEY, ptr, pub_key_len);
             params = OSSL_PARAM_BLD_to_param(incremental_params);
 
             EVP_PKEY_fromdata(pkey_ctx, &pkey, EVP_PKEY_PUBLIC_KEY, params);
@@ -556,12 +632,15 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpK
             // This is the most controversial part of this project, I'm manually setting public exponent to 65537
 
             BIGNUM* pub_exponent = NULL;
-            if (!publicExponentArr)
+            if (publicExponentArr)
+            {
+                OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_E, e);
+            }
+            else
             {
                 static unsigned char pub_expo[] = {
                     0x01, 0x00, 0x01
                 };
-
                 pub_exponent = BN_bin2bn(pub_expo, 3, NULL);
                 OSSL_PARAM_BLD_push_BN(paramBuild, OSSL_PKEY_PARAM_RSA_E, pub_exponent);
             }
@@ -569,7 +648,20 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpK
             params = OSSL_PARAM_BLD_to_param(paramBuild);
             EVP_PKEY_fromdata_init(ctx);
             EVP_PKEY_fromdata(ctx, &pkey, EVP_PKEY_KEYPAIR, params);
-            BN_free(pub_exponent);
+
+            if (pub_exponent != NULL)
+                BN_free(pub_exponent);
+
+            if (shouldCheckPrivate && !!crtCoefArr)
+            {
+                // if I just use "ctx" to run key check, it turns out ctx doesn't have a reference to pkey anymore
+                // maybe right after EVP_PKEY_fromdata, ctx and pkey are separated?
+                ossl_auto<EVP_PKEY_CTX> key_check_ctx = EVP_PKEY_CTX_new_from_pkey(NULL/*lib context*/, pkey, NULL/*prop queue*/);
+                if (!EVP_PKEY_private_check(key_check_ctx))
+                    throw_openssl(EX_INVALID_KEY_SPEC, "Key fails private check");
+                if (!EVP_PKEY_pairwise_check(key_check_ctx))
+                    throw_openssl(EX_INVALID_KEY_SPEC, "Key fails pairwise check");
+            }
         }
         return reinterpret_cast<jlong>(pkey.take());
     }
@@ -580,7 +672,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpK
     }
 }
 
-#define FILL_RSA_KEY_WHEN_PUBLIC_EXPONENT_IS_MISSING
+//#define FILL_RSA_KEY_WHEN_PUBLIC_EXPONENT_IS_MISSING
 
 /*
  * Class:     com_amazon_corretto_crypto_provider_EvpRsaPrivateKey
@@ -597,8 +689,8 @@ extern "C" JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider
 
         EVP_PKEY* pkey = reinterpret_cast<EVP_PKEY*>(keyHandle);
         ossl_auto<unsigned char>der;
-
-        ossl_auto<OSSL_ENCODER_CTX> encoder_ctx = NULL;
+        ossl_auto<PKCS8_PRIV_KEY_INFO>pkcs8;
+        ossl_auto<OSSL_ENCODER_CTX> encoder_ctx;
         size_t derLen = 0;
 
         int selection = EVP_PKEY_KEYPAIR;
@@ -638,17 +730,26 @@ extern "C" JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider
             EVP_PKEY_fromdata_init(filled_key_ctx);
             EVP_PKEY_fromdata(filled_key_ctx, &filled_pkey, EVP_PKEY_KEYPAIR, params);
 
-            encoder_ctx = OSSL_ENCODER_CTX_new_for_pkey(filled_pkey, selection, "DER", NULL/*lib ctx*/, NULL/*prop queue*/);
-            OSSL_ENCODER_to_data(encoder_ctx, &der, &derLen);
+            encoder_ctx = OSSL_ENCODER_CTX_new_for_pkey(filled_pkey, selection, "DER", "PrivateKeyInfo", NULL/*prop queue*/);
+            if (!OSSL_ENCODER_to_data(encoder_ctx, &der, &derLen))
+                throw_openssl(EX_INVALID_KEY, "invalid RSA key");
 
             //BN_free(pub_exponent);
+
+            //pkcs8 = EVP_PKEY2PKCS8(filled_pkey);
+            //derLen = i2d_PKCS8_PRIV_KEY_INFO(pkcs8, &der);
+
         }
         else
 #endif
 
         {
-            encoder_ctx = OSSL_ENCODER_CTX_new_for_pkey(pkey, selection, "DER", NULL/*lib ctx*/, NULL/*prop queue*/);
-            OSSL_ENCODER_to_data(encoder_ctx, &der, &derLen);
+            encoder_ctx = OSSL_ENCODER_CTX_new_for_pkey(pkey, OSSL_KEYMGMT_SELECT_PRIVATE_KEY/*selection*/, "DER", "PrivateKeyInfo", NULL/*prop queue*/);
+            if (!OSSL_ENCODER_to_data(encoder_ctx, &der, &derLen))
+                throw_openssl(EX_INVALID_KEY, "invalid RSA key");
+
+            //pkcs8 = EVP_PKEY2PKCS8(pkey);
+            //derLen = i2d_PKCS8_PRIV_KEY_INFO(pkcs8, &der);
         }
         
         result = env->NewByteArray(derLen);

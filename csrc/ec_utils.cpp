@@ -17,6 +17,11 @@
 #include <sstream>
 #include <vector>
 
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
+#include <libloaderapi.h>
+
+
 namespace AmazonCorrettoCryptoProvider {
 
 using std::string;
@@ -149,13 +154,24 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_EcUtils_curveNam
         ossl_auto<EVP_PKEY_CTX> ctx;
         ossl_auto<EVP_PKEY> pkey;
 
+        ASN1_OBJECT* curve_ASN_obj = OBJ_txt2obj(jniCurve.native_str, 0/*search registered objects*/);
+
+        // get nid
+        int nid = OBJ_obj2nid(curve_ASN_obj);
+
+        const char* curve_name_found = OBJ_nid2sn(nid);
+        char curve_name_mutable[80];
+        memset(curve_name_mutable, 0, sizeof(curve_name_mutable));
+
+        memcpy(curve_name_mutable, curve_name_found, strlen(curve_name_found));
+
         ctx.set(EVP_PKEY_CTX_new_from_name(NULL/*lib context*/, "EC", NULL/*prop queue*/));
 
         EVP_PKEY_keygen_init(ctx);
 
         OSSL_PARAM params[2];
 
-        params[0] = OSSL_PARAM_construct_utf8_string(OSSL_PKEY_PARAM_GROUP_NAME, const_cast<char*>(jniCurve.native_str), 0);
+        params[0] = OSSL_PARAM_construct_utf8_string(OSSL_PKEY_PARAM_GROUP_NAME, curve_name_mutable, 0);
         params[1] = OSSL_PARAM_construct_end();
 
         EVP_PKEY_CTX_set_params(ctx, params);
@@ -180,7 +196,7 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_EcUtils_curveNam
         size_t field_type_length = 0;
         EVP_PKEY_get_utf8_string_param(pkey, OSSL_PKEY_PARAM_EC_FIELD_TYPE, field_type, sizeof(field_type), &field_type_length);
 
-        if (strncmp(field_type, SN_X9_62_characteristic_two_field, field_type_length))
+        if (strncmp(field_type, SN_X9_62_characteristic_two_field, field_type_length) == 0)
         {
             int m;
             EVP_PKEY_get_int_param(pkey, OSSL_PKEY_PARAM_EC_CHAR2_M, &m);
@@ -200,22 +216,24 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_EcUtils_curveNam
         orderBN.toJavaArray(env, orderArr);
 
 
-        ASN1_OBJECT* curve_ASN_obj = OBJ_txt2obj(jniCurve.native_str, 0/*search registered objects*/);
-
-        // get nid
-        int nid = OBJ_obj2nid(curve_ASN_obj);
-
         // get the numeric-dot notation OID
         char dot_notation_oid[80];
 
-        if (!OBJ_obj2txt(dot_notation_oid, sizeof(dot_notation_oid), curve_ASN_obj, 1/*return OID in numeric-dot notation as a string, not the name*/)) {
-            throw_openssl("Unable to get curve OID in numeric-dot notation");
+        int len = OBJ_obj2txt(dot_notation_oid, sizeof(dot_notation_oid), curve_ASN_obj, 1/*return OID in numeric-dot notation as a string, not the name*/);
+        if (len <= 0)
+        {
+            // this function is not likely to fail if it's a valid curve.
+            // Some curves don't have OID, for example: Oakley-EC2N-3 and Oakley-EC2N-4.
+            // So if this function fails, I just assume the input curve is one of those that don't OID.
+            // So I'm not throwing exception in case of failure.
+            return nid;
         }
 
-        jni_borrow oidBorrow = jni_borrow(env, java_buffer::from_array(env, oid), "curveNameToInfo");
+        //jni_borrow oidBorrow = jni_borrow(env, java_buffer::from_array(env, oid), "curveNameToInfo");
+        jni_borrow oidBorrow{ env, java_buffer::from_array(env, oid), "curveNameToInfo" };
         memcpy(oidBorrow.data(), dot_notation_oid, strlen(dot_notation_oid));
         oidBorrow.release();
-
+        
 
         // get the DER encoded OID
         size_t serialized_oid_length = OBJ_length(curve_ASN_obj);
@@ -226,7 +244,8 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_EcUtils_curveNam
         der_encoded_oid[1] = (char)serialized_oid_length;
         memcpy(&der_encoded_oid[2], OBJ_get0_data(curve_ASN_obj), serialized_oid_length);
 
-        jni_borrow encodedOidBorrow = jni_borrow(env, java_buffer::from_array(env, encoded), "DER encoded curver OID");
+        //jni_borrow encodedOidBorrow = jni_borrow(env, java_buffer::from_array(env, encoded), "DER encoded curver OID");
+        jni_borrow encodedOidBorrow = {env, java_buffer::from_array(env, encoded), "DER encoded curver OID"};
         memcpy(encodedOidBorrow.data(), der_encoded_oid, serialized_oid_length + 2);
         encodedOidBorrow.release();
 
@@ -238,6 +257,8 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_EcUtils_curveNam
     }
 }
 
+typedef size_t (get_builtin_curve_fp)(EC_builtin_curve*, size_t);
+
 /*
     * Class:     com_amazon_corretto_crypto_provider_EcUtils
     * Method:    getCurveNames
@@ -247,21 +268,30 @@ JNIEXPORT jobjectArray JNICALL Java_com_amazon_corretto_crypto_provider_EcUtils_
     try {
         raii_env env(pEnv);
 
-        std::vector<EC_builtin_curve> curves;
-        // Specify 0 as the max return count so no data is written, but we get the curve count
-        size_t numCurves = EC_get_builtin_curves(curves.data(), 0);
-        // Now that we know the number of curves to expect, resize and get the curve info from LC
-        curves.resize(numCurves);
-        numCurves = EC_get_builtin_curves(curves.data(), curves.size());
-        if (numCurves > curves.size()) {
-            // We get curve count from LC and resize accordingly, so we should never hit this.
-            throw_openssl("Too many curves");
-        }
+        std::vector<int> fips_curves_nids{
+            NID_secp224r1,
+            NID_secp384r1,
+            NID_secp521r1,
+            NID_X9_62_prime192v1,
+            NID_X9_62_prime256v1,
+            NID_sect163k1,
+            NID_sect163r2,
+            NID_sect233k1,
+            NID_sect233r1,
+            NID_sect283k1,
+            NID_sect283r1,
+            NID_sect409k1,
+            NID_sect409r1,
+            NID_sect571k1,
+            NID_sect571r1
+        };
 
-        jobjectArray names = env->NewObjectArray(numCurves, env->FindClass("java/lang/String"), nullptr);
-        for (size_t i = 0; i < numCurves; i++) {
-            // NOTE: we return the "short name" (e.g. secp384r1) rather than the NIST name (e.g. "NIST P-384")
-            env->SetObjectArrayElement(names, i, env->NewStringUTF(OBJ_nid2sn(curves[i].nid)));
+        jobjectArray names = env->NewObjectArray(fips_curves_nids.size(), env->FindClass("java/lang/String"), nullptr);
+        size_t i = 0;
+        for (const int& nid : fips_curves_nids) {
+            const char* sn = OBJ_nid2sn(nid);
+            env->SetObjectArrayElement(names, i, env->NewStringUTF(sn));
+            i++;
         }
 
         return names;
@@ -283,12 +313,17 @@ JNIEXPORT jstring JNICALL Java_com_amazon_corretto_crypto_provider_EcUtils_getCu
     try {
         raii_env env(pEnv);
 
-        jni_borrow borrow = jni_borrow(env, java_buffer::from_array(env, encoded), "getCurveNameFromEncoded");
-        size_t der_oid_len = borrow.len();
-        size_t bin_oid_len = borrow[1];
+        size_t der_oid_len;
+        size_t bin_oid_len;
         unsigned char bin_oid[80];
-        memcpy(bin_oid, &borrow[2], bin_oid_len);
+        memset(bin_oid, 0, sizeof(bin_oid));
 
+        {
+            jni_borrow curveNameDerBorrow = jni_borrow(env, java_buffer::from_array(env, encoded), "getCurveNameFromEncoded");
+            der_oid_len = curveNameDerBorrow.len();
+            bin_oid_len = curveNameDerBorrow[1];
+            memcpy(bin_oid, &curveNameDerBorrow[2], bin_oid_len);
+        }
         string dot_oid = openssl_asn1_oid_bin2dot(bin_oid, bin_oid_len);
 
         ossl_auto<ASN1_OBJECT> dummy_obj = OBJ_txt2obj(dot_oid.c_str(), 1/*don't search registered objects*/);
@@ -297,7 +332,7 @@ JNIEXPORT jstring JNICALL Java_com_amazon_corretto_crypto_provider_EcUtils_getCu
 
         const char* sn = OBJ_nid2sn(nid);
 
-        return pEnv->NewStringUTF(sn);
+        return env->NewStringUTF(sn);
         // original code has comment on why should *not* use raii_env, but I don't get it.
         // loader.cpp   Java_com_amazon_corretto_crypto_provider_Loader_getNativeLibraryVersio
         // similar scenario, that loader function uses raii_env.

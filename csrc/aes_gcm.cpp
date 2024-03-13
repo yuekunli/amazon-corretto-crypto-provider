@@ -40,7 +40,7 @@ static void initContext(raii_env& env, EVP_CIPHER_CTX* ctx, jint opMode, java_bu
         cipher = EVP_CIPHER_fetch(NULL/*lib context*/, "AES-192-GCM", NULL/*property queue*/);
         break;
     case KEY_LEN_AES256:
-        cipher = EVP_CIPHER_fetch(NULL/*lib context*/, "AES-265-GCM", NULL/*property queue*/);
+        cipher = EVP_CIPHER_fetch(NULL/*lib context*/, "AES-256-GCM", NULL/*property queue*/);
         break;
     default:
         throw java_ex(EX_RUNTIME_CRYPTO, "Unsupported key length");

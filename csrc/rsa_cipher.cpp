@@ -109,7 +109,8 @@ extern "C" JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_RsaCi
         }
 
         if (len > outBuf.len()) { // we've overwritten the buffer, potentially corrupting memory
-            abort();
+            //abort();
+            throw_java_ex(EX_RUNTIME_CRYPTO, "overwrote provided output buffer");
         } else if (len < 0) {
             throw_java_ex(EX_RUNTIME_CRYPTO, "Unexpected error, negative output length");
         } else if (len & 0xffff0000) {

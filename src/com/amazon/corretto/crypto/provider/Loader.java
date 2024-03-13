@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.amazon.corretto.crypto.provider;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
+import java.nio.ByteBuffer;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -49,9 +48,10 @@ final class Loader {
   private static final String JNI_LIBRARY_NAME = "amazonCorrettoCryptoProvider";
   private static final String PROPERTY_VERSION_STR = "versionStr";
   private static final String LIBCRYPTO_NAME = "crypto";
-  private static final String[] JAR_RESOURCES = {JNI_LIBRARY_NAME, LIBCRYPTO_NAME};
+  private static final String[] JAR_RESOURCES = {JNI_LIBRARY_NAME/*, LIBCRYPTO_NAME*/};
   private static final Pattern TEST_FILENAME_PATTERN =
       Pattern.compile("[-a-zA-Z0-9]+(\\.[a-zA-Z0-9]+)*");
+  /*
   private static final FileAttribute<Set<PosixFilePermission>> SELF_OWNER_FILE_PERMISSIONS =
       PosixFilePermissions.asFileAttribute(
           new HashSet<>(
@@ -59,7 +59,7 @@ final class Loader {
                   PosixFilePermission.OWNER_READ,
                   PosixFilePermission.OWNER_WRITE,
                   PosixFilePermission.OWNER_EXECUTE)));
-
+  */
   private static final Logger LOG = Logger.getLogger("AmazonCorrettoCryptoProvider");
 
   // Version strings live in the loader because we want to be able to access them before
@@ -255,18 +255,33 @@ final class Loader {
     validateLibcryptoVersion(true);
   }
 
+  private static void tryLoadLibraryFromFixedPath()
+  {
+    System.load("C:\\ws\\accp-tmp\\amazonCorrettoCryptoProvider.dll");
+    validateLibcryptoVersion(false);
+  }
+
   private static void tryLoadLibrary() throws Exception {
     // First, try to find the library in our own jar
     final boolean useExternalLib = Boolean.parseBoolean(getProperty("useExternalLib", "false"));
     boolean successfullyLoadedLibrary = false;
     Exception loadingException = null;
 
-    if (!useExternalLib) {
-      try {
-        tryLoadLibraryFromJar();
-        successfullyLoadedLibrary = true;
-      } catch (Exception e) {
-        loadingException = e;
+    try {
+      tryLoadLibraryFromFixedPath();
+      successfullyLoadedLibrary = true;
+    } catch (Exception e) {
+      loadingException = e;
+    }
+
+    if (!successfullyLoadedLibrary) {
+      if (!useExternalLib) {
+        try {
+          tryLoadLibraryFromJar();
+          successfullyLoadedLibrary = true;
+        } catch (Exception e) {
+          loadingException = e;
+        }
       }
     }
 
@@ -352,7 +367,7 @@ final class Loader {
     maybeDelete(tmpDirectory);
   }
 
-  private static Path writeJarResourceToTemporaryFile(
+  private static void writeJarResourceToTemporaryFile(
       Path tempDirectory, final String resourceFileName) throws IOException {
     final Path tempResourceFilePath = tempDirectory.resolve(resourceFileName);
 
@@ -363,8 +378,14 @@ final class Loader {
     // (or read) to an arbitrary attacker controlled location. If this file already exists at this
     // location, then
     // a FileAlreadyExistsException will be thrown.
-    Files.createFile(tempResourceFilePath, SELF_OWNER_FILE_PERMISSIONS);
-
+    Path tmpFilePath = Files.createFile(tempResourceFilePath);
+    File tmpFile = tmpFilePath.toFile();
+    if (!tmpFile.setReadable(true) ||
+      !(tmpFile.canWrite()) ||
+      !(tmpFile.setExecutable(true)))
+    {
+      throw new IOException("setting temp file permission failed");
+    }
     try (InputStream is = Loader.class.getResourceAsStream(resourceFileName);
         OutputStream os =
             Files.newOutputStream(
@@ -372,10 +393,11 @@ final class Loader {
                 StandardOpenOption.WRITE,
                 StandardOpenOption.TRUNCATE_EXISTING)) {
       final byte[] buffer = new byte[16 * 1024];
-      int read = is.read(buffer);
-      while (read >= 0) {
-        os.write(buffer, 0, read);
-        read = is.read(buffer);
+      assert is != null;
+      int bytesRead = is.read(buffer);
+      while (bytesRead >= 0) {
+        os.write(buffer, 0, bytesRead);
+        bytesRead = is.read(buffer);
       }
       os.flush();
     }
@@ -383,7 +405,7 @@ final class Loader {
     // Ensure we delete any temp files on exit
     tempResourceFilePath.toFile().deleteOnExit();
 
-    return tempResourceFilePath;
+    //return tempResourceFilePath;
   }
 
   /**
@@ -413,6 +435,28 @@ final class Loader {
     throw new AssertionError("Unable to read enough entropy");
   }
 
+  private static byte[] bootstrapRng_Windows(int lengthRequired) throws IOException
+  {
+    String command = "powershell.exe get-random";
+    int intSize = Integer.SIZE / 8;
+    byte[] bytes = new byte[lengthRequired];
+    int lengthAccumulated = 0;
+    while (lengthAccumulated < lengthRequired) {
+      int lengthOneRun = Math.min(intSize, lengthRequired - lengthAccumulated);
+      Process powerShellProcess = Runtime.getRuntime().exec(command);
+      powerShellProcess.getOutputStream().close();
+      String line;
+      BufferedReader stdout = new BufferedReader(new InputStreamReader(powerShellProcess.getInputStream()));
+      line = stdout.readLine();
+      stdout.close();
+      int r = Integer.parseInt(line);
+      byte[] bytesOneRun = ByteBuffer.allocate(intSize).putInt(r).array();
+      System.arraycopy(bytesOneRun, 0, bytes, lengthAccumulated, lengthOneRun);
+      lengthAccumulated += lengthOneRun;
+    }
+    return bytes;
+  }
+
   /**
    * Unfortunately, we cannot actually use Files.createTempFile, because that internally depends on
    * SecureRandom, which results in a circular dependency.
@@ -430,7 +474,7 @@ final class Loader {
       attempt++;
       try {
         final byte[] rndBytes =
-            bootstrapRng(Long.BYTES); // Default java tmp files use this much entropy
+            bootstrapRng_Windows(Long.BYTES); // Default java tmp files use this much entropy
         final StringBuilder privateTempDir = new StringBuilder(prefix);
 
         for (byte b : rndBytes) {
@@ -446,12 +490,18 @@ final class Loader {
         final Path privateDirFullPath = systemTempDir.resolve(privateTempDir.toString());
 
         final Path result =
-            Files.createDirectories(privateDirFullPath, SELF_OWNER_FILE_PERMISSIONS);
+            Files.createDirectories(privateDirFullPath);
         if (DebugFlag.VERBOSELOGS.isEnabled()) {
           LOG.log(Level.FINE, "Created temporary library directory");
         }
-
-        result.toFile().deleteOnExit();
+        File tmpDir = result.toFile();
+        if (!tmpDir.setReadable(true) ||
+          !(tmpDir.canWrite()) ||
+          !(tmpDir.setExecutable(true)))
+        {
+          throw new Exception("setting directory permission failed");
+        }
+        tmpDir.deleteOnExit();
         return result;
       } catch (final IOException ex) {
         // We use the last IOException as the cause of AssertionError

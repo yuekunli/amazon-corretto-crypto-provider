@@ -148,6 +148,9 @@ template<>
 void ossl_auto<EVP_MD_CTX>::clear();
 
 template<>
+void ossl_auto<EVP_MD>::clear();
+
+template<>
 void ossl_auto<EVP_MAC_CTX>::clear();
 
 template<>

@@ -473,8 +473,8 @@ JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpSignatu
             paddingType, reinterpret_cast<const EVP_MD*>(mgfMdPtr), pssSaltLen);
 
         std::vector<uint8_t, SecureAlloc<uint8_t> > signature;
+        size_t sigLength;
         {
-            size_t sigLength;
             jni_borrow message(env, messageBuf, "message");
 
             if (EVP_PKEY_sign(ctx.getKeyCtx(), NULL, &sigLength, message.data(), message.len()) <= 0) {
@@ -486,14 +486,13 @@ JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider_EvpSignatu
             if (EVP_PKEY_sign(ctx.getKeyCtx(), &signature[0], &sigLength, message.data(), message.len()) <= 0) {
                 throw_openssl("Signature failed");
             }
-
-            if (signature.size() < sigLength) {
-                pEnv->FatalError("Unexpected buffer overflow");
-            }
-
-            signature.resize(sigLength);
+        }
+        if (signature.size() < sigLength) {
+            env->FatalError("OpenSSL gave an expected signature length that is shorter than actual length"); 
         }
 
+        signature.resize(sigLength);  // why resize again?
+        
         return vecToArray(env, signature);
     } catch (java_ex& ex) {
         ex.throw_to_java(pEnv);

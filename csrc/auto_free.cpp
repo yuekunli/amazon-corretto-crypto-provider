@@ -13,8 +13,6 @@
 #include <openssl/kdf.h>
 #include <openssl/x509.h>
 
-
-
 template<>
 void ossl_auto<EVP_CIPHER>::clear()
 {
@@ -60,6 +58,14 @@ void ossl_auto<EVP_MD_CTX>::clear()
 {
     if (ptr != NULL)
         EVP_MD_CTX_free(ptr);
+    ptr = NULL;
+}
+
+template<>
+void ossl_auto<EVP_MD>::clear()
+{
+    if (ptr != NULL)
+        EVP_MD_free(ptr);
     ptr = NULL;
 }
 
@@ -142,7 +148,6 @@ void ossl_auto<unsigned char>::clear()
         OPENSSL_free(ptr);
     ptr = NULL;
 }
-
 
 template<>
 ossl_auto<unsigned char>::operator jbyte* ()

@@ -4,8 +4,8 @@ import java.nio.ByteBuffer;
 import java.security.DigestException;
 import java.security.MessageDigestSpi;
 
-public final class EvpMD5Spi extends MessageDigestSpi implements Cloneable {
-    private static final int HASH_SIZE = 16;
+public final class SHA1Spi extends MessageDigestSpi implements Cloneable {
+    private static final int HASH_SIZE = 20;
     private static final long[] CONTEXT;
 
     private InputBuffer<byte[], long[], RuntimeException> buffer;
@@ -14,6 +14,19 @@ public final class EvpMD5Spi extends MessageDigestSpi implements Cloneable {
         Loader.checkNativeLibraryAvailability();
         CONTEXT = new long[1];
         initContext(CONTEXT);
+    }
+
+    public SHA1Spi()
+    {
+        Loader.checkNativeLibraryAvailability();
+
+        this.buffer = new InputBuffer<byte[], long[], RuntimeException>(1024)
+                .withInitialStateSupplier(SHA1Spi::resetContext)
+                .withUpdater(SHA1Spi::synchronizedUpdateContextByteArray)
+                .withUpdater(SHA1Spi::synchronizedUpdateNativeByteBuffer)
+                .withDoFinal(SHA1Spi::doFinal)
+                .withSinglePass(SHA1Spi::singlePass)
+                .withStateCloner((context) -> context.clone());
     }
 
     static native void fastDigest(byte[] digest, byte[] buf, int offset, int bufLen);
@@ -87,19 +100,6 @@ public final class EvpMD5Spi extends MessageDigestSpi implements Cloneable {
         return result;
     }
 
-    public EvpMD5Spi()
-    {
-        Loader.checkNativeLibraryAvailability();
-
-        this.buffer = new InputBuffer<byte[], long[], RuntimeException>(1024)
-                .withInitialStateSupplier(EvpMD5Spi::resetContext)
-                .withUpdater(EvpMD5Spi::synchronizedUpdateContextByteArray)
-                .withUpdater(EvpMD5Spi::synchronizedUpdateNativeByteBuffer)
-                .withDoFinal(EvpMD5Spi::doFinal)
-                .withSinglePass(EvpMD5Spi::singlePass)
-                .withStateCloner((context) -> context.clone());
-    }
-
     @Override
     protected void engineUpdate(byte input)
     {
@@ -129,7 +129,7 @@ public final class EvpMD5Spi extends MessageDigestSpi implements Cloneable {
     {
         try
         {
-            EvpMD5Spi clonedObject = (EvpMD5Spi) super.clone();
+            SHA1Spi clonedObject = (SHA1Spi) super.clone();
             clonedObject.buffer = buffer.clone();
             return clonedObject;
         }
