@@ -24,7 +24,8 @@ static void generateEcKey(raii_env* env, EVP_PKEY** key, EVP_PKEY* param, jboole
     CHECK_OPENSSL(EVP_PKEY_keygen_init(ctx) > 0);
     CHECK_OPENSSL(EVP_PKEY_keygen(ctx, key));
     if (checkConsistency) {
-        CHECK_OPENSSL(EVP_PKEY_check(ctx) == 1);
+        ossl_auto<EVP_PKEY_CTX> check_key_ctx = EVP_PKEY_CTX_new_from_pkey(NULL/*lib context*/, *key, NULL/*prop queue*/);
+        CHECK_OPENSSL(EVP_PKEY_check(check_key_ctx) == 1);
     }
 }
 

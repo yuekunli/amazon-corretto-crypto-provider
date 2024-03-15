@@ -13,7 +13,7 @@ using namespace AmazonCorrettoCryptoProvider;
 extern "C" {
 #endif
 
-JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_RsaGen_generateEvpKey_ossl3(
+JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_RsaGen_generateEvpKey(
     JNIEnv* pEnv, jclass, jint bits, jboolean checkConsistency, jbyteArray pubExp)
 {
     try {
@@ -33,15 +33,16 @@ JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_RsaGen_generate
 
         if (checkConsistency)
         {
+            ossl_auto<EVP_PKEY_CTX> check_key_ctx = EVP_PKEY_CTX_new_from_pkey(NULL/*lib context*/, pkey, NULL/*prop queue*/);
             int check_ret = 0;
 
-            if ((check_ret = EVP_PKEY_public_check(ctx)) <= 0)
+            if ((check_ret = EVP_PKEY_public_check(check_key_ctx)) <= 0)
                 throw_openssl("Key failed public component check");
 
-            if ((check_ret = EVP_PKEY_private_check(ctx)) <= 0)
+            if ((check_ret = EVP_PKEY_private_check(check_key_ctx)) <= 0)
                 throw_openssl("Key failed private component check");
 
-            if ((check_ret = EVP_PKEY_pairwise_check(ctx)) <= 0)
+            if ((check_ret = EVP_PKEY_pairwise_check(check_key_ctx)) <= 0)
                 throw_openssl("Key failed pairwise check");
         }
         return reinterpret_cast<jlong>(pkey.take());

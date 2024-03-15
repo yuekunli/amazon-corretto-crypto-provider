@@ -71,6 +71,10 @@ extern "C" JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider
         raii_env env(pEnv);
 
         EVP_PKEY* key = reinterpret_cast<EVP_PKEY*>(keyHandle);
+
+        if (EVP_PKEY_base_id(key) == EVP_PKEY_EC) {
+            EVP_PKEY_set_int_param(key, OSSL_PKEY_PARAM_EC_INCLUDE_PUBLIC, 0);
+        }
         
         ossl_auto<unsigned char>der;
         ossl_auto<PKCS8_PRIV_KEY_INFO> pkcs8;
@@ -291,7 +295,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpK
 
 #endif
 
-
+#ifdef APPROACH_3
             unsigned char x_first_byte = qx_borrow[0];
             unsigned char y_first_byte = qy_borrow[0];
             if (x_first_byte == 0)
@@ -312,8 +316,42 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_amazon_corretto_crypto_provider_EvpK
             else
                 memcpy(ptr + 1, qx_borrow.data() + 1, pub_key_x_len);
 
-            OSSL_PARAM_BLD_push_utf8_string(incremental_params, OSSL_PKEY_PARAM_GROUP_NAME, curve_name, curve_name_length);
+#endif
 
+            ASN1_OBJECT* curve_ASN_obj = OBJ_txt2obj(curve_name, 0/*search registered objects*/);
+            int nid = OBJ_obj2nid(curve_ASN_obj);
+            EC_GROUP* gr = EC_GROUP_new_by_curve_name_ex(NULL/*lib context*/, NULL/*prop queue*/, nid);
+            const BIGNUM* p = EC_GROUP_get0_field(gr);
+            int field_size = BN_num_bits(p);
+            int n = (field_size + 7) >> 3;
+            size_t pub_key_len = 1 + (n << 1);
+            unsigned char* ptr = (unsigned char*)OPENSSL_zalloc(pub_key_len);
+            ptr[0] = 4;
+
+            size_t i = 0;
+            
+            while (qx_borrow.data()[i] == 0)
+                i++;
+
+            size_t j = 0;
+
+            while (qy_borrow.data()[j] == 0)
+                j++;
+
+            size_t x_non_zero_len = pub_key_x_len - i;
+
+            size_t x_patch_up_zero_count = n - x_non_zero_len;
+
+            size_t y_non_zero_len = pub_key_y_len - j;
+
+            size_t y_patch_up_zero_count = n - y_non_zero_len;
+
+
+            memcpy(ptr + 1 + x_patch_up_zero_count, qx_borrow.data() + i, n - x_patch_up_zero_count);
+            memcpy(ptr + 1 + n + y_patch_up_zero_count, qy_borrow.data() + j, n - y_patch_up_zero_count);
+
+            
+            OSSL_PARAM_BLD_push_utf8_string(incremental_params, OSSL_PKEY_PARAM_GROUP_NAME, curve_name, curve_name_length);
             //The string that buf points to is stored by reference and must remain in scope until after OSSL_PARAM_BLD_to_param() has been called.
                         
             OSSL_PARAM_BLD_push_octet_string(incremental_params, OSSL_PKEY_PARAM_PUB_KEY, ptr, pub_key_len);
