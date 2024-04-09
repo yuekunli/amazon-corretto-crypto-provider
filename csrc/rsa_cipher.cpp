@@ -97,6 +97,15 @@ extern "C" JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_RsaCi
                 throw_java_ex(EX_RUNTIME_CRYPTO, "Unknown cipher mode");
             }
 
+
+            // rsa_pk1.c   ossl_rsa_padding_check_PKCS1_type_2
+            /*
+            * If the padding is PKCS#1, not only FIPS module skips putting error message on stack,
+            * but also returns success and fills the output buffer with random bytes, so that it
+            * looks like a complete successful decryption. This whole effort is to prevent
+            * Bleichenbacher padding oracle attack.
+            */
+
             if (ret <= 0) {
                 long err = drainOpensslErrors();
                 if ((err & RSA_R_DATA_TOO_LARGE_FOR_MODULUS) || (err & RSA_R_PADDING_CHECK_FAILED)
