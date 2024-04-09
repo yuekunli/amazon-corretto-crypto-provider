@@ -26,7 +26,7 @@ class CustomTrustManager implements X509TrustManager {
     tmf.init((KeyStore) null);
     defaultTrustManager = (X509TrustManager) tmf.getTrustManagers()[0];
 
-    try (InputStream is = CustomTrustManager.class.getResourceAsStream("amazonca.jks")) {
+    try (InputStream is = CustomTrustManager.class.getResourceAsStream("/amazonca.jks")) {
       if (is == null) {
         throw new RuntimeException("Can't find amazonca.jks resource");
       }

@@ -78,7 +78,7 @@ public class TestHTTPSServer {
 
     private SNIKeyManager() throws Exception {
       keyStore = KeyStore.getInstance("JKS");
-      try (InputStream is = SNIKeyManager.class.getResourceAsStream("test_private_keys.jks")) {
+      try (InputStream is = SNIKeyManager.class.getResourceAsStream("/test_private_keys.jks")) {
         if (is == null) {
           throw new IOException("Can't load private key store");
         }
@@ -270,17 +270,24 @@ public class TestHTTPSServer {
       classpathString.add(element.toString());
     }
 
+    String hardcodedClasspath = "C:\\Users\\YuekunLi\\.jdks\\corretto-1.8.0_402\\jre\\lib\\charsets.jar;C:\\Users\\YuekunLi\\.jdks\\corretto-1.8.0_402\\jre\\lib\\ext\\access-bridge-64.jar;C:\\Users\\YuekunLi\\.jdks\\corretto-1.8.0_402\\jre\\lib\\ext\\amazon-corretto-crypto-provider.jar;C:\\Users\\YuekunLi\\.jdks\\corretto-1.8.0_402\\jre\\lib\\ext\\cldrdata.jar;C:\\Users\\YuekunLi\\.jdks\\corretto-1.8.0_402\\jre\\lib\\ext\\dnsns.jar;C:\\Users\\YuekunLi\\.jdks\\corretto-1.8.0_402\\jre\\lib\\ext\\jaccess.jar;C:\\Users\\YuekunLi\\.jdks\\corretto-1.8.0_402\\jre\\lib\\ext\\jfxrt.jar;C:\\Users\\YuekunLi\\.jdks\\corretto-1.8.0_402\\jre\\lib\\ext\\localedata.jar;C:\\Users\\YuekunLi\\.jdks\\corretto-1.8.0_402\\jre\\lib\\ext\\nashorn.jar;C:\\Users\\YuekunLi\\.jdks\\corretto-1.8.0_402\\jre\\lib\\ext\\sunec.jar;C:\\Users\\YuekunLi\\.jdks\\corretto-1.8.0_402\\jre\\lib\\ext\\sunjce_provider.jar;C:\\Users\\YuekunLi\\.jdks\\corretto-1.8.0_402\\jre\\lib\\ext\\sunmscapi.jar;C:\\Users\\YuekunLi\\.jdks\\corretto-1.8.0_402\\jre\\lib\\ext\\sunpkcs11.jar;C:\\Users\\YuekunLi\\.jdks\\corretto-1.8.0_402\\jre\\lib\\ext\\zipfs.jar;C:\\Users\\YuekunLi\\.jdks\\corretto-1.8.0_402\\jre\\lib\\jce.jar;C:\\Users\\YuekunLi\\.jdks\\corretto-1.8.0_402\\jre\\lib\\jfr.jar;C:\\Users\\YuekunLi\\.jdks\\corretto-1.8.0_402\\jre\\lib\\jfxswt.jar;C:\\Users\\YuekunLi\\.jdks\\corretto-1.8.0_402\\jre\\lib\\jsse.jar;C:\\Users\\YuekunLi\\.jdks\\corretto-1.8.0_402\\jre\\lib\\management-agent.jar;C:\\Users\\YuekunLi\\.jdks\\corretto-1.8.0_402\\jre\\lib\\resources.jar;C:\\Users\\YuekunLi\\.jdks\\corretto-1.8.0_402\\jre\\lib\\rt.jar;C:\\ws\\amazon-corretto-crypto-provider\\tst\\com\\amazon\\corretto\\crypto\\provider\\test\\integration;C:\\Users\\YuekunLi\\IdeaProjects\\JavaMaven1\\target\\test-classes;C:\\Users\\YuekunLi\\IdeaProjects\\JavaMaven1\\target\\classes;C:\\Users\\YuekunLi\\.m2\\repository\\org\\junit\\jupiter\\junit-jupiter\\5.8.2\\junit-jupiter-5.8.2.jar;C:\\Users\\YuekunLi\\.m2\\repository\\org\\junit\\jupiter\\junit-jupiter-api\\5.8.2\\junit-jupiter-api-5.8.2.jar;C:\\Users\\YuekunLi\\.m2\\repository\\org\\opentest4j\\opentest4j\\1.2.0\\opentest4j-1.2.0.jar;C:\\Users\\YuekunLi\\.m2\\repository\\org\\junit\\platform\\junit-platform-commons\\1.8.2\\junit-platform-commons-1.8.2.jar;C:\\Users\\YuekunLi\\.m2\\repository\\org\\junit\\jupiter\\junit-jupiter-params\\5.8.2\\junit-jupiter-params-5.8.2.jar;C:\\Users\\YuekunLi\\.m2\\repository\\org\\junit\\jupiter\\junit-jupiter-engine\\5.8.2\\junit-jupiter-engine-5.8.2.jar;C:\\Users\\YuekunLi\\.m2\\repository\\org\\apiguardian\\apiguardian-api\\1.1.2\\apiguardian-api-1.1.2.jar;C:\\Users\\YuekunLi\\.m2\\repository\\org\\junit\\vintage\\junit-vintage-engine\\5.8.2\\junit-vintage-engine-5.8.2.jar;C:\\Users\\YuekunLi\\.m2\\repository\\org\\junit\\platform\\junit-platform-engine\\1.8.2\\junit-platform-engine-1.8.2.jar;C:\\Users\\YuekunLi\\.m2\\repository\\junit\\junit\\4.13.2\\junit-4.13.2.jar;C:\\Users\\YuekunLi\\.m2\\repository\\org\\hamcrest\\hamcrest-core\\1.3\\hamcrest-core-1.3.jar;C:\\Users\\YuekunLi\\.m2\\repository\\org\\bouncycastle\\bcprov-debug-jdk15on\\1.69\\bcprov-debug-jdk15on-1.69.jar;C:\\Users\\YuekunLi\\.m2\\repository\\org\\bouncycastle\\bcpkix-jdk15on\\1.69\\bcpkix-jdk15on-1.69.jar;C:\\Users\\YuekunLi\\.m2\\repository\\org\\bouncycastle\\bcprov-jdk15on\\1.69\\bcprov-jdk15on-1.69.jar;C:\\Users\\YuekunLi\\.m2\\repository\\org\\bouncycastle\\bcutil-jdk15on\\1.69\\bcutil-jdk15on-1.69.jar;C:\\Users\\YuekunLi\\.m2\\repository\\commons-codec\\commons-codec\\1.12\\commons-codec-1.12.jar;C:\\Users\\YuekunLi\\.m2\\repository\\org\\hamcrest\\hamcrest\\2.1\\hamcrest-2.1.jar;C:\\Users\\YuekunLi\\.m2\\repository\\org\\jacoco\\org.jacoco.core\\0.8.3\\org.jacoco.core-0.8.3.jar;C:\\Users\\YuekunLi\\.m2\\repository\\org\\ow2\\asm\\asm\\7.0\\asm-7.0.jar;C:\\Users\\YuekunLi\\.m2\\repository\\org\\ow2\\asm\\asm-commons\\7.0\\asm-commons-7.0.jar;C:\\Users\\YuekunLi\\.m2\\repository\\org\\ow2\\asm\\asm-analysis\\7.0\\asm-analysis-7.0.jar;C:\\Users\\YuekunLi\\.m2\\repository\\org\\ow2\\asm\\asm-tree\\7.0\\asm-tree-7.0.jar;C:\\Users\\YuekunLi\\.m2\\repository\\org\\jacoco\\org.jacoco.report\\0.8.3\\org.jacoco.report-0.8.3.jar;C:\\Users\\YuekunLi\\.m2\\repository\\org\\junit\\platform\\junit-platform-console-standalone\\1.8.2\\junit-platform-console-standalone-1.8.2.jar;C:\\Users\\YuekunLi\\.m2\\repository\\org\\jacoco\\org.jacoco.agent\\0.8.7\\org.jacoco.agent-0.8.7.jar";
+
+
     // TODO see if this works on windows
-    javaInvocation.add(System.getProperty("java.home") + "/bin/java");
+    //javaInvocation.add(System.getProperty("java.home") + "\\bin\\java.exe");
+    String hardcodedJavaExe = "C:\\Users\\YuekunLi\\.jdks\\corretto-1.8.0_402\\bin\\java.exe";
+    javaInvocation.add(hardcodedJavaExe);
     javaInvocation.add("-cp");
-    javaInvocation.add(classpathString.toString());
-    javaInvocation.add("-Djava.library.path=" + System.getProperty("java.library.path"));
+    //javaInvocation.add(classpathString.toString());
+    javaInvocation.add(hardcodedClasspath);
+    //javaInvocation.add("-Djava.library.path=" + System.getProperty("java.library.path"));
     // NOTE: the below debug parameter is useful when debugging server-side
     //       issues that occur before the TLS handshake has completed (e.g.
     //       certificate signature mismatches) and test log utilitiess at
     //       the HTTPS level are available.
     //
     //       javaInvocation.add("-Djavax.net.debug=all");
+    javaInvocation.add("-DFIPS=true");
     javaInvocation.addAll(Arrays.asList(args));
 
     return Runtime.getRuntime().exec(javaInvocation.toArray(new String[0]));

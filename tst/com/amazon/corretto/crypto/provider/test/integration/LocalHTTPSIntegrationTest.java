@@ -126,7 +126,7 @@ public class LocalHTTPSIntegrationTest {
     // ACCP) breaks
     // KeyStore.
     KeyStore keyStore = KeyStore.getInstance("JKS");
-    try (InputStream is = TestHTTPSServer.class.getResourceAsStream("test_CA.jks")) {
+    try (InputStream is = TestHTTPSServer.class.getResourceAsStream("/test_CA.jks")) {
       keyStore.load(is, SUPER_SECURE_PASSWORD);
     }
     trustManagerFactory =

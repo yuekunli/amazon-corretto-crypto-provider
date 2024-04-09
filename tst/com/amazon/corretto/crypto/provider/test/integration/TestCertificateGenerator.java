@@ -210,7 +210,7 @@ public class TestCertificateGenerator {
       }
     }
 
-    generator.writePrivateKeys("test_private_keys.jks");
-    generator.writeCAKeystore("test_CA.jks");
+    generator.writePrivateKeys("src/main/resources/test_private_keys.jks");
+    generator.writeCAKeystore("src/main/resources/test_CA.jks");
   }
 }

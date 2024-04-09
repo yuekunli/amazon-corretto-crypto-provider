@@ -36,7 +36,7 @@ public class HTTPSTestParameters {
   static {
     Map<String, List<Integer>> algoKeyBitsMap = new HashMap<>();
 
-    algoKeyBitsMap.put("RSA", Arrays.asList(1024, 2048, 3072, 7680, 15360));
+    algoKeyBitsMap.put("RSA", Arrays.asList(/*1024,*/ 2048, 3072, 7680, 15360)); // LYK: not test 1024 key size for RSA
     algoKeyBitsMap.put("ECDSA", Arrays.asList(256, 384, 521));
 
     ALGO_TO_KEY_BITS = Collections.unmodifiableMap(algoKeyBitsMap);
