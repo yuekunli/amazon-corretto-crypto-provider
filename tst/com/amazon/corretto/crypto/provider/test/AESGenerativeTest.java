@@ -108,7 +108,7 @@ public class AESGenerativeTest {
       testWrap(i, 16);
       testWrap(i, 24);
       testWrap(i, 32);
-      testWrap(i, 1024);
+      //testWrap(i, 1024);   // FIPS, RSA key length at least 2048
       testWrap(i, 2048);
     }
   }

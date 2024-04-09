@@ -112,4 +112,10 @@ public class SHA256Test {
       new HashFunctionTester(SHA_256).test(RspTestEntry.iterateOverResource(is));
     }
   }
+
+  @Test
+  public void testSpecific() throws Throwable
+  {
+    new HashFunctionTester(SHA_256).testSpecific();
+  }
 }

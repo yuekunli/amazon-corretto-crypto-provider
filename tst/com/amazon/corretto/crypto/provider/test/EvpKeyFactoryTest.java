@@ -86,7 +86,7 @@ public class EvpKeyFactoryTest {
     }
 
     for (String algorithm : ALGORITHMS) {
-      KeyPairGenerator kpg = KeyPairGenerator.getInstance(algorithm);
+      KeyPairGenerator kpg = KeyPairGenerator.getInstance(algorithm, NATIVE_PROVIDER);  // LYK Change to using native provider
       List<Arguments> keys = new ArrayList<>();
       if (algorithm.equals("EC")) {
         // Different curves can excercise different areas of ASN.1/DER and so should all be tested.
@@ -148,6 +148,27 @@ public class EvpKeyFactoryTest {
     return new ArrayList<>(KEYPAIRS.get("EC"));
   }
 
+  /**
+   * 0: RSA
+   * 1: RSA-NoCRT
+   * 2: RSA-DgtN (private exponent greater than n)
+   * 3: EC-256
+   * 4: EC-384
+   * 5: EC-521
+   * All EC curves are prime field curves
+   */
+  public static List<Arguments> specificKeyPair()
+  {
+    List<Arguments> result = new ArrayList<>();
+    for (Map.Entry<String, List<Arguments>> e : KEYPAIRS.entrySet()) {
+      if (e.getKey().equals("EC")) {
+        result.add(e.getValue().get(2));
+        break;
+      }
+    }
+    return result;
+  }
+
   public static List<Arguments> badEcPublicKeys() throws Exception {
     List<Arguments> result = new ArrayList<>();
     for (Arguments base : ecPairs()) {
@@ -175,6 +196,7 @@ public class EvpKeyFactoryTest {
     for (Arguments base : KEYPAIRS.get("EC")) {
       result.add(Arguments.of(base.get()[0], base.get()[1], false));
       result.add(Arguments.of(base.get()[0], base.get()[1], true));
+      //break;
     }
     return result;
   }
@@ -384,7 +406,7 @@ public class EvpKeyFactoryTest {
   public void rsaPrefersCrtParams() throws Exception {
     // Since RSAPrivateCrtKeySpec extends RSAPrivateKeySpec, we should try to return it from
     // getKeySpec whenever possible.
-    KeyPairGenerator gen = KeyPairGenerator.getInstance("RSA");
+    KeyPairGenerator gen = KeyPairGenerator.getInstance("RSA", NATIVE_PROVIDER);  // LYK Change to using native provider
     RSAPrivateCrtKey privCrtKey = (RSAPrivateCrtKey) gen.generateKeyPair().getPrivate();
 
     KeyFactory factory = KeyFactory.getInstance("RSA", NATIVE_PROVIDER);

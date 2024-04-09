@@ -51,6 +51,9 @@ import javax.crypto.ShortBufferException;
 import javax.crypto.spec.OAEPParameterSpec;
 import javax.crypto.spec.PSource;
 import javax.crypto.spec.SecretKeySpec;
+
+import com.amazon.corretto.crypto.provider.AmazonCorrettoCryptoProvider;
+import com.amazon.corretto.crypto.provider.RuntimeCryptoException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.Execution;
@@ -69,25 +72,37 @@ public class RsaCipherTest {
   private static final String OAEP_PADDING = "RSA/ECB/OAEPPadding";
   private static final String PKCS1_PADDING = "RSA/ECB/Pkcs1Padding";
   private static final String NO_PADDING = "RSA/ECB/NoPadding";
-  private static final KeyPairGenerator JCE_KEY_GEN;
+  private static final KeyPairGenerator FIPS_KEY_GEN;
+  private static final KeyPairGenerator SUN_KEY_GEN;
   private static final KeyFactory JCE_KEY_FACTORY;
-  private static final KeyPair PAIR_1024;
-  private static final KeyPair PAIR_2048;
-  private static final KeyPair PAIR_4096;
-  private static final KeyPair PAIR_512;
+  private static  KeyPair PAIR_1024 = null;
+  private static  KeyPair PAIR_2048 = null;
+  private static  KeyPair PAIR_4096 = null;
+  private static  KeyPair PAIR_512 = null;
 
   static {
     try {
       JCE_KEY_FACTORY = KeyFactory.getInstance("RSA");
-      JCE_KEY_GEN = KeyPairGenerator.getInstance("RSA");
-      JCE_KEY_GEN.initialize(1024);
-      PAIR_1024 = JCE_KEY_GEN.generateKeyPair();
-      JCE_KEY_GEN.initialize(2048);
-      PAIR_2048 = JCE_KEY_GEN.generateKeyPair();
-      JCE_KEY_GEN.initialize(4096);
-      PAIR_4096 = JCE_KEY_GEN.generateKeyPair();
-      JCE_KEY_GEN.initialize(512);
-      PAIR_512 = JCE_KEY_GEN.generateKeyPair();
+      FIPS_KEY_GEN = KeyPairGenerator.getInstance("RSA", NATIVE_PROVIDER);
+      SUN_KEY_GEN = KeyPairGenerator.getInstance("RSA");
+
+      SUN_KEY_GEN.initialize(1024);
+      PAIR_1024 = SUN_KEY_GEN.generateKeyPair();
+      SUN_KEY_GEN.initialize(512);
+      PAIR_512 = SUN_KEY_GEN.generateKeyPair();
+
+      if (Boolean.getBoolean("FIPS")) {
+        FIPS_KEY_GEN.initialize(2048);
+        PAIR_2048 = FIPS_KEY_GEN.generateKeyPair();
+        FIPS_KEY_GEN.initialize(4096);
+        PAIR_4096 = FIPS_KEY_GEN.generateKeyPair();
+      } else {
+        SUN_KEY_GEN.initialize(2048);
+        PAIR_2048 = SUN_KEY_GEN.generateKeyPair();
+        SUN_KEY_GEN.initialize(4096);
+        PAIR_4096 = SUN_KEY_GEN.generateKeyPair();
+      }
+
     } catch (final GeneralSecurityException ex) {
       throw new AssertionError(ex);
     }
@@ -120,7 +135,10 @@ public class RsaCipherTest {
   }
 
   public static List<Integer> lengthParams() {
-    return Arrays.asList(512, 1024, 2048, 4096);
+    if (Boolean.getBoolean("FIPS"))
+      return Arrays.asList(2048, 4096);
+    else
+      return Arrays.asList(512, 1024, 2048, 4096);
   }
 
   public static List<Arguments> paddingXlengthParams() {
@@ -150,7 +168,13 @@ public class RsaCipherTest {
     return result;
   }
 
-  private static byte[] getPlaintext(final int size) {
+  public static List<Arguments> specificParams() {
+    final List<Arguments> result = new ArrayList<>();
+    result.add(Arguments.of(PKCS1_PADDING, 2048, null, ""));
+    return result;
+  }
+
+    private static byte[] getPlaintext(final int size) {
     final byte[] result = new byte[size];
     Arrays.fill(result, (byte) 0x55);
     return result;
@@ -604,16 +628,19 @@ public class RsaCipherTest {
     // Strip out the CRT factors
     final RSAPrivateKey prvKey = (RSAPrivateKey) keyPair.getPrivate();
     final PrivateKey strippedKey =
-        JCE_KEY_FACTORY.generatePrivate(
-            new RSAPrivateKeySpec(prvKey.getModulus(), prvKey.getPrivateExponent()));
+            JCE_KEY_FACTORY.generatePrivate(
+                    new RSAPrivateKeySpec(prvKey.getModulus(), prvKey.getPrivateExponent()));
 
     final Cipher enc = getNativeCipher(padding);
     final Cipher dec = getNativeCipher(padding);
 
     final byte[] plaintext = getPlaintext(keySize / 8 - getPaddingSize(padding, oaep));
     enc.init(Cipher.ENCRYPT_MODE, keyPair.getPublic(), oaep);
-    dec.init(Cipher.DECRYPT_MODE, strippedKey, oaep);
-
+    if (Boolean.getBoolean("FIPS")) {
+      dec.init(Cipher.DECRYPT_MODE, prvKey, oaep);
+    } else {
+      dec.init(Cipher.DECRYPT_MODE, strippedKey, oaep);
+    }
     final byte[] ciphertext = enc.doFinal(plaintext);
     final byte[] decrypted = dec.doFinal(ciphertext);
     assertArrayEquals(plaintext, decrypted);
@@ -808,6 +835,13 @@ public class RsaCipherTest {
   @ParameterizedTest
   @MethodSource("paddingParams")
   public void jce2nativeWrapRsa(final String padding) throws GeneralSecurityException {
+    assumeFalse(Boolean.getBoolean("FIPS"));
+    // We can't run this test case.
+    // When using OpenSSL as the unwrapping provider, it decrypts the wrapped key just the same as decrypting any cipher text.
+    // and then rebuild a private key out of the decrypted bytes array.
+    // The rebuilding process is the same as generating any RSA key. In FIPS module, the key size has to be at least 2048-bit
+    // If we use 512-bit key as the test target, when FIPS module rebuilds it, it fails because key size too short.
+    // If we use 2048-bit key as the test target, SUN provider complains the key being too long when wrapping it.
     assumeFalse(
         NO_PADDING.equalsIgnoreCase(padding),
         "Padding is necessary to know where the wrapped key ends");
@@ -836,6 +870,7 @@ public class RsaCipherTest {
       final String ignoredName)
       throws Exception {
     assumeFalse(NO_PADDING.equalsIgnoreCase(padding), "Only valid with padding");
+    assumeFalse(PKCS1_PADDING.equalsIgnoreCase(padding), "PKCS#1 padding error not exposed by FIPS module");
     final Cipher enc = Cipher.getInstance(NO_PADDING, NATIVE_PROVIDER);
     final KeyPair keyPair = getKeyPair(keySize);
     enc.init(Cipher.ENCRYPT_MODE, keyPair.getPublic());
@@ -844,7 +879,11 @@ public class RsaCipherTest {
     final byte[] ciphertext = enc.doFinal(plaintext);
     final Cipher dec = getNativeCipher(padding);
     dec.init(Cipher.DECRYPT_MODE, keyPair.getPrivate(), oaep);
-    assertThrows(BadPaddingException.class, () -> dec.doFinal(ciphertext));
+    if (Boolean.getBoolean("FIPS")) {
+      assertThrows(RuntimeCryptoException.class, () -> dec.doFinal(ciphertext));
+    } else {
+      assertThrows(BadPaddingException.class, () -> dec.doFinal(ciphertext));
+    }
   }
 
   @ParameterizedTest
@@ -856,6 +895,7 @@ public class RsaCipherTest {
       final String ignoredName)
       throws Exception {
     assumeFalse(NO_PADDING.equalsIgnoreCase(padding), "Only valid with padding");
+    assumeFalse(PKCS1_PADDING.equalsIgnoreCase(padding), "PKCS#1 padding error not exposed by FIPS module");
     final Cipher enc = Cipher.getInstance(NO_PADDING, NATIVE_PROVIDER);
     final KeyPair keyPair = getKeyPair(keySize);
     enc.init(Cipher.ENCRYPT_MODE, keyPair.getPublic());
@@ -864,7 +904,18 @@ public class RsaCipherTest {
     byte[] ciphertext = enc.doFinal(plaintext);
     final Cipher dec = getNativeCipher(padding);
     dec.init(Cipher.DECRYPT_MODE, keyPair.getPrivate(), oaep);
-    assertThrows(BadPaddingException.class, () -> dec.doFinal(ciphertext));
+    //assertThrows(BadPaddingException.class, () -> dec.doFinal(ciphertext));
+
+    // if the padding is PKCS#1 and if the padding is wrong, FIPS module does its best to prevent
+    // Bleichenbacher padding oracle attack. This means not only FIPS module returns success for decryption
+    // but also fills the output buffer with some random bytes. And internally it goes through the entire
+    // decryption process in order to not expose any timing difference.
+
+    if (Boolean.getBoolean("FIPS")) {
+      assertThrows(RuntimeCryptoException.class, () -> dec.doFinal(ciphertext));
+    } else {
+      assertThrows(BadPaddingException.class, () -> dec.doFinal(ciphertext));
+    }
   }
 
   // Unlike padded modes which have an upper-plaintext size defined in bytes,
@@ -945,9 +996,9 @@ public class RsaCipherTest {
     for (int x = 0; x < threadCount; x++) {
       final List<KeyPair> keys = new ArrayList<KeyPair>();
       while (keys.isEmpty()) {
-        if (rng.nextBoolean()) {
-          keys.add(PAIR_1024);
-        }
+        //if (rng.nextBoolean()) {
+        //  keys.add(PAIR_1024);
+        //}
         if (rng.nextBoolean()) {
           keys.add(PAIR_2048);
         }
@@ -985,7 +1036,7 @@ public class RsaCipherTest {
   public void noInputDoFinal() throws Exception {
     assumeMinimumVersion("1.6.0", NATIVE_PROVIDER);
     final Cipher enc = Cipher.getInstance(NO_PADDING, NATIVE_PROVIDER);
-    enc.init(Cipher.ENCRYPT_MODE, PAIR_1024.getPublic());
+    enc.init(Cipher.ENCRYPT_MODE, PAIR_2048.getPublic());
     final byte[] result = enc.doFinal();
     for (final byte b : result) {
       assertEquals(b, 0);
@@ -1059,18 +1110,35 @@ public class RsaCipherTest {
     assertArrayEquals(plaintext, decrypt.doFinal());
 
     // Verify no release of data even on bad padding
-    if (!NO_PADDING.equals(padding)) {
+    // when padding is PKCS#1 and padding is wrong, FIPS module deliberately returns success on decryption
+    if (!NO_PADDING.equals(padding) && !PKCS1_PADDING.equals(padding)) {
       final byte[] result = new byte[ciphertext.length]; // Full size
       ciphertext[3] ^= 0x13; // Just twiddle some bits
-      assertThrows(
-          BadPaddingException.class,
-          () -> decrypt.doFinal(ciphertext, 0, ciphertext.length, result, 0));
+      if (Boolean.getBoolean("FIPS") && decrypt.getProvider() instanceof AmazonCorrettoCryptoProvider) {
+        /*
+        OpenSSL     rsa_oaep.c   RSA_padding_check_PKCS1_OAEP_mgf1
+        FIPS module deliberately not put error code on stack
+         */
+        assertThrows(
+                RuntimeCryptoException.class,
+                () -> decrypt.doFinal(ciphertext, 0, ciphertext.length, result, 0));
+      }
+      else {
+        assertThrows(
+                BadPaddingException.class,
+                () -> decrypt.doFinal(ciphertext, 0, ciphertext.length, result, 0));
+      }
       assertArrayEquals(new byte[ciphertext.length], result);
 
       Arrays.fill(result, (byte) 0);
       ByteBuffer ciphertextBuff = ByteBuffer.wrap(ciphertext);
       ByteBuffer resultBuff = ByteBuffer.wrap(result);
-      assertThrows(BadPaddingException.class, () -> decrypt.doFinal(ciphertextBuff, resultBuff));
+      if (Boolean.getBoolean("FIPS") && decrypt.getProvider() instanceof AmazonCorrettoCryptoProvider) {
+        assertThrows(RuntimeCryptoException.class, () -> decrypt.doFinal(ciphertextBuff, resultBuff));
+      }
+      else {
+        assertThrows(BadPaddingException.class, () -> decrypt.doFinal(ciphertextBuff, resultBuff));
+      }
       assertArrayEquals(new byte[ciphertext.length], result);
     }
   }

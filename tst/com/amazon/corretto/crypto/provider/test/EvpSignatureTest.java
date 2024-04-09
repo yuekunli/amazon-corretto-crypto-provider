@@ -54,6 +54,13 @@ public class EvpSignatureTest {
       Arrays.asList("NONE", "SHA1", "SHA224", "SHA256", "SHA384", "SHA512");
   private static final int[] MESSAGE_LENGTHS = new int[] {0, 1, 16, 32, 2047, 2048, 2049, 4100};
 
+  /**
+   * TestParams has a field "message" whose length is one of MESSAGE_LENGTHS
+   * Some test cases have a local variable "length" which is one of LENGTHS
+   * For example, message length is 2048, length is 32.
+   * signer is incrementally updated with a portion (32 bytes) of the message at a time.
+   * The last chunk may be shorter than 32 bytes, if so, update signer the remaining bytes.
+   */
   private static class TestParams {
     private final String base;
     private final String algorithm;
@@ -193,7 +200,7 @@ public class EvpSignatureTest {
   }
 
   private static List<TestParams> getParams() throws GeneralSecurityException {
-    KeyPairGenerator kg = KeyPairGenerator.getInstance("RSA");
+    KeyPairGenerator kg = KeyPairGenerator.getInstance("RSA", NATIVE_PROVIDER);
     kg.initialize(new RSAKeyGenParameterSpec(2048, RSAKeyGenParameterSpec.F4));
     KeyPair rsaPair = kg.generateKeyPair();
 
@@ -217,6 +224,9 @@ public class EvpSignatureTest {
       next_hash:
       for (final String hash : HASHES) {
         int[] lengths = MESSAGE_LENGTHS;
+        if (hash.equals("SHA1")) {  // FIPS: SHA1 not allowed
+          continue next_hash;
+        }
         if (hash.equals("NONE")) {
           switch (base) {
             case "RSA":
@@ -302,8 +312,23 @@ public class EvpSignatureTest {
     }
   }
 
+
+  public static List<TestParams> specificParams() throws GeneralSecurityException {
+    KeyPairGenerator kg = KeyPairGenerator.getInstance("RSA", NATIVE_PROVIDER);
+    //kg.initialize(new RSAKeyGenParameterSpec(2048, RSAKeyGenParameterSpec.F4));
+    //KeyPair rsaPair = kg.generateKeyPair();
+
+    kg = KeyPairGenerator.getInstance("EC");
+    kg.initialize(new ECGenParameterSpec("NIST P-521"));
+    KeyPair ecPair = kg.generateKeyPair();
+    List<TestParams> paramsList = new ArrayList<>();
+    paramsList.add(new TestParams("ECDSA", "NONEwithECDSA", 32, false, false, ecPair, null));
+    //SHA224withECDSAinP1363Format
+    return paramsList;
+  }
+
   @ParameterizedTest
-  @MethodSource("params")
+  @MethodSource("params") //params
   public void exceptionCausesReset(TestParams params) throws GeneralSecurityException {
     final byte[] shortArray = new byte[2];
     params.signer.update(params.message);

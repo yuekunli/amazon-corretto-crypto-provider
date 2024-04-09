@@ -60,7 +60,7 @@ public class ServiceSelfTestMetaTest {
 
   @Test
   public void whenSelfTestsFail_nothingIsVended_exceptDRBG() throws Throwable {
-    Class<?> spiClass = Class.forName(NATIVE_PROVIDER_PACKAGE + ".EvpHmac$SHA256");
+    Class<?> spiClass = Class.forName(NATIVE_PROVIDER_PACKAGE + ".EvpHmacSinglePass$SHA256");
     Object selfTest = TestUtil.sneakyGetField(spiClass, "SELF_TEST");
 
     sneakyInvoke(selfTest, "forceFailure");
@@ -197,7 +197,7 @@ public class ServiceSelfTestMetaTest {
     accp = new AmazonCorrettoCryptoProvider();
     assertNotSame(SelfTestStatus.FAILED, accp.runSelfTests());
     // Let's force a failure and re run the tests
-    Class<?> spiClass = Class.forName(NATIVE_PROVIDER_PACKAGE + ".EvpHmac$SHA256");
+    Class<?> spiClass = Class.forName(NATIVE_PROVIDER_PACKAGE + ".EvpHmacSinglePass$SHA256");
     Object selfTest = TestUtil.sneakyGetField(spiClass, "SELF_TEST");
     sneakyInvoke(selfTest, "forceFailure");
     assertSame(SelfTestStatus.FAILED, accp.getSelfTestStatus());

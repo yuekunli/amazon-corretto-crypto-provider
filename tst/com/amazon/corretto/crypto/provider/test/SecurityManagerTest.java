@@ -6,10 +6,8 @@ import static com.amazon.corretto.crypto.provider.test.TestUtil.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.amazon.corretto.crypto.provider.AmazonCorrettoCryptoProvider;
-import java.security.AccessController;
-import java.security.MessageDigest;
-import java.security.Permission;
-import java.security.Security;
+
+import java.security.*;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.crypto.Cipher;
 import javax.crypto.spec.SecretKeySpec;
@@ -39,6 +37,11 @@ public class SecurityManagerTest {
     c.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(new byte[16], "AES"));
     c.doFinal();
 
+    // test case "sanityCheck_securityManager_doesDeny" triggers the initialization <clinit> of TestUtil class.
+    // and this requires a bunch of permission checks. Invoke something on TestUtil so that its members are initialized.
+    System.out.println(TestUtil.isFips());
+
+
     Security.insertProviderAt(AmazonCorrettoCryptoProvider.INSTANCE, 1);
     System.setSecurityManager(new OneThreadSecurityManager(threadToDeny));
   }
@@ -67,6 +70,13 @@ public class SecurityManagerTest {
       CallExpectedToFail call = new CallExpectedToFail();
       threadToDeny.set(Thread.currentThread());
 
+      // C:\Users\YuekunLi\.jdks\corretto-1.8.0_402\src.zip!\java\lang\reflect\AccessibleObject.java
+      // the comments of "setAccessible" claim that a ReflectPermission("suppressAccessChecks") is checked
+      // when "setAccessible" is called. So if I don't grant that permission, the "CallExpectedToFail" should
+      // fail because of "suppressAccessChecks" permission is denied. But in fact, it fails on
+      // access denied ("java.lang.RuntimePermission" "accessDeclaredMembers").
+      // Actually "accessDeclaredmembers" sounds to make more sense because "CallExpectedToFail" essentially
+      // accesses the member function "clone".
       assertThrows(SecurityException.class, call);
     } finally {
       threadToDeny.set(null);
@@ -115,21 +125,22 @@ public class SecurityManagerTest {
 
     @Override
     public void checkPermission(Permission perm) {
-      if (Thread.currentThread() != threadToDeny.get()) return;
+      if (Thread.currentThread() != threadToDeny.get())
+        return;
 
-      Thread oldThread = null;
+      //Thread oldThread = null;
       try {
         AccessController.checkPermission(perm);
+        System.out.println(perm);
       } catch (SecurityException e) {
-
-        oldThread = threadToDeny.getAndSet(null);
+        //oldThread = threadToDeny.getAndSet(null);
 
         e.printStackTrace();
 
         throw e;
-      } finally {
-        threadToDeny.set(oldThread);
-      }
+      } //finally {
+        //threadToDeny.set(oldThread);
+      //}
     }
   }
 }

@@ -58,6 +58,7 @@ public class HashFunctionTester {
     int resetType = r.nextInt(3);
     if (jceDigest == null) resetType = 0;
 
+    //System.out.println("reset type: " + resetType);
     switch (resetType) {
       case 0:
         {
@@ -84,9 +85,12 @@ public class HashFunctionTester {
       int bufferType = r.nextInt(4);
       int bufferLength = r.nextDouble() < 0.1 ? 512 * 1024 + r.nextInt(1024) : r.nextInt(1024);
 
+      boolean isNative = bufferType == 0;
+      boolean isReadOnly = bufferType != 2 && r.nextBoolean();
       ByteBuffer buf =
-          getBuffer(r, bufferType == 0, bufferType != 2 && r.nextBoolean(), bufferLength);
+          getBuffer(r, isNative, isReadOnly, bufferLength);
 
+      //System.out.println("buffer type: " + bufferType + ", is native: " + isNative + ", is read only: " + isReadOnly + ", length: " + bufferLength);
       switch (bufferType) {
         case 0:
         case 1:
@@ -119,7 +123,9 @@ public class HashFunctionTester {
     }
 
     byte[] jceResult, amzResult;
-    switch (r.nextInt(4)) {
+    int finalizeStep = r.nextInt(4);
+    //System.out.println("finalize step: " + finalizeStep);
+    switch (finalizeStep) {
       case 0:
         {
           // Complete into existing array
@@ -162,6 +168,157 @@ public class HashFunctionTester {
     assertArrayEquals(jceResult, amzResult);
   }
 
+
+
+  private void test2(long seed, int chunkCount, int resetType, int bufferType, int finalizeStep, boolean isNative, boolean isReadOnly) throws Exception {
+
+    Random r = new Random(seed);
+
+    if (jceDigest == null) resetType = 0;
+
+    switch (resetType) {
+      case 0:
+      {
+        // Allocate new digest objects
+        jceDigest = getDefaultInstance();
+        amzDigest = getAmazonInstance();
+        break;
+      }
+      case 1:
+      {
+        // Gratuitous reset
+        jceDigest.reset();
+        amzDigest.reset();
+        break;
+      }
+      case 2:
+      {
+        // Do nothing (digest() should have reset us on the last iteration)
+        break;
+      }
+    }
+
+    for (int i = 0; i < chunkCount; i++) {
+
+      int bufferLength = r.nextDouble() < 0.1 ? 512 * 1024 + r.nextInt(1024) : r.nextInt(1024);
+
+      //boolean isNative = bufferType == 0;
+      //boolean isReadOnly = bufferType != 2 && r.nextBoolean();
+      ByteBuffer buf =
+              getBuffer(r, isNative, isReadOnly, bufferLength);
+
+      System.out.println("[" + isNative + ", " + isReadOnly + ", " + bufferLength + "]");
+      switch (bufferType) {
+        case 0:
+        case 1:
+        {
+          ByteBuffer maybeReadOnly = r.nextBoolean() ? buf.asReadOnlyBuffer() : buf;
+
+          jceDigest.update(maybeReadOnly.duplicate());
+          amzDigest.update(maybeReadOnly);
+          assertEquals(maybeReadOnly.position(), maybeReadOnly.limit());
+
+          break;
+        }
+        case 2:
+        {
+          byte[] adata = buf.array();
+
+          jceDigest.update(adata, buf.position(), buf.remaining());
+          amzDigest.update(adata, buf.position(), buf.remaining());
+          break;
+        }
+        case 3:
+        {
+          // ignore the buffer and just update with a single byte
+          byte b = (byte) (r.nextInt() & 0xFF);
+          jceDigest.update(b);
+          amzDigest.update(b);
+          break;
+        }
+      }
+    }
+
+    byte[] jceResult, amzResult;
+
+    //System.out.println("finalize step: " + finalizeStep);
+    switch (finalizeStep) {
+      case 0:
+      {
+        // Complete into existing array
+        int offset = r.nextInt(16);
+        jceResult = finishDigestIntoExistingArray(jceDigest, offset);
+        amzResult = finishDigestIntoExistingArray(amzDigest, offset);
+        break;
+      }
+      case 1:
+      {
+        // Complete with single call
+        jceResult = jceDigest.digest();
+        amzResult = amzDigest.digest();
+        break;
+      }
+      case 2:
+      {
+        // Pass additional data
+        int buflen = r.nextInt(1024) + (r.nextBoolean() ? 512 * 1024 : 0);
+        byte[] buf = new byte[buflen];
+        r.nextBytes(buf);
+
+        jceResult = jceDigest.digest(buf);
+        amzResult = amzDigest.digest(buf);
+        break;
+      }
+      case 3:
+      {
+        // Reset without getting the result (to verify that we reset the state properly for the
+        // next test)
+        jceResult = amzResult = new byte[0];
+        jceDigest.reset();
+        amzDigest.reset();
+        break;
+      }
+      default:
+        throw new AssertionError();
+    }
+    assertArrayEquals(jceResult, amzResult);
+  }
+
+
+  public void testSpecific() {
+    byte[] jceResult;
+    byte[] amzResult;
+    Random r = new Random(123456789);
+    jceDigest = getDefaultInstance();
+    amzDigest = getAmazonInstance();
+
+    byte[] a = new byte[512];
+    r.nextBytes(a);
+    jceDigest.update(a, 4, 486);
+    amzDigest.update(a, 4, 486);
+
+    jceResult = jceDigest.digest();
+    amzResult = amzDigest.digest();
+
+    assertArrayEquals(jceResult, amzResult);
+
+    //amzDigest.reset();
+
+    ByteBuffer buf2 = getBuffer(r, false, false, 48);
+    jceDigest.update(buf2.duplicate());
+    amzDigest.update(buf2);
+
+    jceResult = jceDigest.digest();
+    amzResult = amzDigest.digest();
+
+    assertArrayEquals(jceResult, amzResult);
+  }
+
+
+
+
+
+
   private MessageDigest getAmazonInstance() {
     try {
       return MessageDigest.getInstance(algorithm, TestUtil.NATIVE_PROVIDER);
@@ -195,6 +352,31 @@ public class HashFunctionTester {
       throw new AssertionError("Failed with seed " + seed, e);
     }
   }
+
+
+  public void testRandomly2(int iterations) throws Exception {
+    Random r = new Random();
+    long seed = 0;
+
+    try {
+      seed = r.nextLong();
+      test2(seed, 1, 0, 1, 2, false, false);
+      //seed = r.nextLong();
+      //test2(seed, 1, 1, 0, 3, true, false);
+
+      //seed = r.nextLong();
+      //test2(seed, 1, 2, 3, 0, false, true);
+
+      seed = r.nextLong();
+      test2(seed, 1, 1, 1, 2, false, true);
+
+    } catch (Throwable e) {
+      throw new AssertionError("Failed with seed " + seed, e);
+    }
+  }
+
+
+
 
   private ByteBuffer getBuffer(Random r, boolean isNative, boolean isReadOnly, int bufferLength) {
     int beforePad = r.nextBoolean() ? r.nextInt(1024) : 0;

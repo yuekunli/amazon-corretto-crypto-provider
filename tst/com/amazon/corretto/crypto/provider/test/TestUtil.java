@@ -64,12 +64,21 @@ public class TestUtil {
       };
 
   // Not supported in JDK17
-  public static final String[][] LEGACY_CURVES =
+  public static final String[][] LEGACY_CURVES_FIPS_ONLY =
+      new String[][] {
+        // Prime Curves
+        new String[] {"secp224r1", "NIST P-224", "1.3.132.0.33"},
+        //new String[] {"secp256k1", "1.3.132.0.10"},   // LYK: Not approved by FIPS
+      };
+
+  public static final String[][] LEGACY_CURVES_OLD =
       new String[][] {
         // Prime Curves
         new String[] {"secp224r1", "NIST P-224", "1.3.132.0.33"},
         new String[] {"secp256k1", "1.3.132.0.10"},
       };
+
+  public static final String[][] LEGACY_CURVES = Boolean.getBoolean("FIPS") ? LEGACY_CURVES_FIPS_ONLY : LEGACY_CURVES_OLD;
 
   public static boolean isFips() {
     return NATIVE_PROVIDER.isFips();

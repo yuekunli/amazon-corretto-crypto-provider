@@ -167,16 +167,17 @@ public class RsaGenTest {
   public void test5120() throws GeneralSecurityException {
     final KeyPairGenerator generator = getGenerator();
     generator.initialize(5120);
-    if (TestUtil.isFips()) {
-      assertThrows(RuntimeCryptoException.class, () -> generator.generateKeyPair());
-    } else {
+    // LYK: Who told you FIPS doesn't support 5120 key size?
+    //if (TestUtil.isFips()) {
+    //  assertThrows(RuntimeCryptoException.class, () -> generator.generateKeyPair());
+    //} else {
       final KeyPair keyPair = generator.generateKeyPair();
       final RSAPublicKey pubKey = (RSAPublicKey) keyPair.getPublic();
       final RSAPrivateCrtKey privKey = (RSAPrivateCrtKey) keyPair.getPrivate();
       assertEquals(5120, pubKey.getModulus().bitLength());
       assertEquals(RSAKeyGenParameterSpec.F4, pubKey.getPublicExponent());
       assertConsistency(pubKey, privKey);
-    }
+    //}
   }
 
   @Test

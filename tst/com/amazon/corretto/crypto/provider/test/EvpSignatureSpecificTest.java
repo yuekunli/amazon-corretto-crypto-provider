@@ -50,6 +50,9 @@ import javax.crypto.AEADBadTagException;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
+import javax.print.attribute.standard.MediaSize;
+
+import com.amazon.corretto.crypto.provider.AmazonCorrettoCryptoProvider;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.util.Arrays;
 import org.junit.jupiter.api.Test;
@@ -81,7 +84,7 @@ public final class EvpSignatureSpecificTest {
     }
 
     try {
-      KeyPairGenerator kg = KeyPairGenerator.getInstance("RSA");
+      KeyPairGenerator kg = KeyPairGenerator.getInstance("RSA", NATIVE_PROVIDER);
       kg.initialize(new RSAKeyGenParameterSpec(2048, RSAKeyGenParameterSpec.F4));
       RSA_PAIR = kg.generateKeyPair();
 
@@ -192,8 +195,8 @@ public final class EvpSignatureSpecificTest {
     // and 2) don't
     // throw an unexpected exception
     doCorruptionSweep("NONEwithECDSA", ECDSA_PAIR);
-    doCorruptionSweep("SHA1withECDSA", ECDSA_PAIR);
-    doCorruptionSweep("SHA1withRSA", RSA_PAIR);
+    doCorruptionSweep("SHA224withECDSA", ECDSA_PAIR);
+    doCorruptionSweep("SHA224withRSA", RSA_PAIR);
   }
 
   private void doCorruptionSweep(final String algorithm, final KeyPair keyPair) throws Exception {
@@ -302,12 +305,12 @@ public final class EvpSignatureSpecificTest {
 
   @Test
   public void reinitImmediately() throws Exception {
-    final Signature signature = Signature.getInstance("SHA1withRSA", NATIVE_PROVIDER);
+    final Signature signature = Signature.getInstance("SHA224withRSA", NATIVE_PROVIDER);
     signature.initVerify(RSA_PAIR.getPublic());
     signature.initSign(RSA_PAIR.getPrivate());
     signature.update(MESSAGE);
 
-    final Signature bcSig = Signature.getInstance("SHA1withRSA", BOUNCYCASTLE_PROVIDER);
+    final Signature bcSig = Signature.getInstance("SHA224withRSA", BOUNCYCASTLE_PROVIDER);
     bcSig.initVerify(RSA_PAIR.getPublic());
     bcSig.update(MESSAGE);
     assertTrue(bcSig.verify(signature.sign()));
@@ -315,13 +318,13 @@ public final class EvpSignatureSpecificTest {
 
   @Test
   public void reinitAfterData() throws Exception {
-    final Signature signature = Signature.getInstance("SHA1withRSA", NATIVE_PROVIDER);
+    final Signature signature = Signature.getInstance("SHA224withRSA", NATIVE_PROVIDER);
     signature.initVerify(RSA_PAIR.getPublic());
     signature.update(MESSAGE);
     signature.initSign(RSA_PAIR.getPrivate());
     signature.update(MESSAGE);
 
-    final Signature bcSig = Signature.getInstance("SHA1withRSA", BOUNCYCASTLE_PROVIDER);
+    final Signature bcSig = Signature.getInstance("SHA224withRSA", BOUNCYCASTLE_PROVIDER);
     bcSig.initVerify(RSA_PAIR.getPublic());
     bcSig.update(MESSAGE);
     assertTrue(bcSig.verify(signature.sign()));
@@ -329,7 +332,7 @@ public final class EvpSignatureSpecificTest {
 
   @Test
   public void reinitAfterLotsOfData() throws Exception {
-    final Signature signature = Signature.getInstance("SHA1withRSA", NATIVE_PROVIDER);
+    final Signature signature = Signature.getInstance("SHA224withRSA", NATIVE_PROVIDER);
     signature.initVerify(RSA_PAIR.getPublic());
     for (int x = 0; x < 512; x++) {
       signature.update(MESSAGE);
@@ -337,7 +340,7 @@ public final class EvpSignatureSpecificTest {
     signature.initSign(RSA_PAIR.getPrivate());
     signature.update(MESSAGE);
 
-    final Signature bcSig = Signature.getInstance("SHA1withRSA", BOUNCYCASTLE_PROVIDER);
+    final Signature bcSig = Signature.getInstance("SHA224withRSA", BOUNCYCASTLE_PROVIDER);
     bcSig.initVerify(RSA_PAIR.getPublic());
     bcSig.update(MESSAGE);
     assertTrue(bcSig.verify(signature.sign()));
@@ -377,7 +380,7 @@ public final class EvpSignatureSpecificTest {
     final KeyFactory kf = KeyFactory.getInstance("RSA", NATIVE_PROVIDER);
     final PrivateKey strippedKey =
         kf.generatePrivate(new RSAPrivateKeySpec(prvKey.getModulus(), prvKey.getPrivateExponent()));
-    final Signature signature = Signature.getInstance("SHA1withRSA", NATIVE_PROVIDER);
+    final Signature signature = Signature.getInstance("SHA224withRSA", NATIVE_PROVIDER);
     signature.initSign(strippedKey);
     signature.update(MESSAGE);
     final byte[] validSignature = signature.sign();
@@ -387,7 +390,7 @@ public final class EvpSignatureSpecificTest {
   }
 
   @Test
-  public void testDigestTooLargeForSmallKey() throws Exception {
+  public void testDigestTooLargeForSmallKey() throws Exception {  // native provider can't initialize with small key
     // NOTE: AWS-LC enforces a minimum modulus size of 512 bits for key
     //       generation, so we need to specify the smaller key manually.
     final BigInteger n =
@@ -702,7 +705,7 @@ public final class EvpSignatureSpecificTest {
         keyGenAlgorithm = base;
       }
 
-      final KeyPairGenerator kg = KeyPairGenerator.getInstance(keyGenAlgorithm);
+      final KeyPairGenerator kg = KeyPairGenerator.getInstance(keyGenAlgorithm, NATIVE_PROVIDER);
       if (keyGenSpec != null) {
         kg.initialize(keyGenSpec);
       } else {

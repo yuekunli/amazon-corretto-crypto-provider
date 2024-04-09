@@ -31,9 +31,10 @@ public class NativeTestHooks {
   public static boolean hasNativeHooks() {
     try {
       // Force loading library
-      if (AmazonCorrettoCryptoProvider.INSTANCE.getLoadingError() != null) {
-        return false;
-      }
+      //if (AmazonCorrettoCryptoProvider.INSTANCE.getLoadingError() != null) {
+      //  return false;
+      //}
+      System.load("C:\\ws\\accp-tmp\\amazonCorrettoCryptoProvider.dll");
       try {
         NativeTestHooks.throwException();
       } catch (final IllegalArgumentException expected) {
