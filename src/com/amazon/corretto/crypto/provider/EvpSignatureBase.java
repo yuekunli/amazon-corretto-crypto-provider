@@ -53,7 +53,8 @@ abstract class EvpSignatureBase extends SignatureSpi {
     keyType_ = keyType;
     paddingType_ = paddingType;
     if (paddingType_ == RSA_PKCS1_PSS_PADDING) {
-      internalSetParams(PSSParameterSpec.DEFAULT);
+      //internalSetParams(PSSParameterSpec.DEFAULT);
+      internalSetParams(new PSSParameterSpec("SHA-224", "MGF1", MGF1ParameterSpec.SHA1, 20, 1));
       // digest_ is set by internalSetParameters
     } else {
       internalSetParams(null);

@@ -103,6 +103,15 @@ extern "C" JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_RsaCi
                     || (err & RSA_R_OAEP_DECODING_ERROR)) {
                     throw_java_ex(EX_BADPADDING, formatOpensslError(err, "Bad Padding"));
                 } else {
+                    // rsa_oaep.c   RSA_padding_check_PKCS1_OAEP_mgf1
+                    /*
+                    * To avoid chosen ciphertext attacks, the error message should not
+                    * reveal which kind of decoding error happened.
+                    *
+                    * This trick doesn't work in the FIPS provider because libcrypto manages
+                    * the error stack. Instead we opt not to put an error on the stack at all
+                    * in case of padding failure in the FIPS provider.
+                    */
                     throw_openssl(formatOpensslError(err, "Unexpected exception").c_str());
                 }
             }

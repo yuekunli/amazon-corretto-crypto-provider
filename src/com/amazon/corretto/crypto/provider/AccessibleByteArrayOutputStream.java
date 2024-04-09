@@ -7,9 +7,9 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 
 class AccessibleByteArrayOutputStream extends OutputStream implements Cloneable {
-  private final int limit;
-  private byte[] buf;
-  private int count;
+  private final int limit;   // absolute limit, when grow, it can't exceed limit
+  private byte[] buf;  // actual array length can dynamically change, but never exceeds "limit"
+  private int count;   // meaningful data size in the array
 
   // getter function for count
   // Add 10 to it before returning

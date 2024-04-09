@@ -16,6 +16,7 @@
 
 #include <sstream>
 #include <vector>
+#include <algorithm>
 
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
@@ -23,6 +24,25 @@
 
 
 namespace AmazonCorrettoCryptoProvider {
+
+
+    std::vector<int> fips_curves_nids{
+    NID_secp224r1,
+    NID_secp384r1,
+    NID_secp521r1,
+    NID_X9_62_prime192v1,
+    NID_X9_62_prime256v1,
+    NID_sect163k1,
+    NID_sect163r2,
+    NID_sect233k1,
+    NID_sect233r1,
+    NID_sect283k1,
+    NID_sect283r1,
+    NID_sect409k1,
+    NID_sect409r1,
+    NID_sect571k1,
+    NID_sect571r1
+    };
 
 using std::string;
 using std::stringstream;
@@ -158,6 +178,15 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_EcUtils_curveNam
 
         // get nid
         int nid = OBJ_obj2nid(curve_ASN_obj);
+        
+        if (nid == NID_undef)
+            return NID_undef;
+
+        if (std::find(fips_curves_nids.begin(), fips_curves_nids.end(), nid) == std::end(fips_curves_nids))
+        {
+            // are you kidding me? give me a valid name but it's not a curve
+            return NID_undef;
+        }
 
         const char* curve_name_found = OBJ_nid2sn(nid);
         char curve_name_mutable[80];
@@ -190,8 +219,8 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_EcUtils_curveNam
         EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_EC_A, &aBN);
         EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_EC_B, &bBN);
         EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_EC_COFACTOR, &cfBN);
-        EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_EC_PUB_X, &gxBN);
-        EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_EC_PUB_Y, &gyBN);
+        //EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_EC_PUB_X, &gxBN);
+        //EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_EC_PUB_Y, &gyBN);
         EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_EC_ORDER, &orderBN);
         size_t field_type_length = 0;
         EVP_PKEY_get_utf8_string_param(pkey, OSSL_PKEY_PARAM_EC_FIELD_TYPE, field_type, sizeof(field_type), &field_type_length);
@@ -205,8 +234,31 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_EcUtils_curveNam
             env.rethrow_java_exception();
         }
 
-        gxBN.toJavaArray(env, gxArr);
-        gyBN.toJavaArray(env, gyArr);
+        size_t gen_buf_len = 0;
+        EVP_PKEY_get_octet_string_param(pkey, OSSL_PKEY_PARAM_EC_GENERATOR, NULL, 0, &gen_buf_len);
+        unsigned char* gen_buf = (unsigned char*)OPENSSL_malloc(gen_buf_len);
+        EVP_PKEY_get_octet_string_param(pkey, OSSL_PKEY_PARAM_EC_GENERATOR, gen_buf, gen_buf_len, &gen_buf_len);
+        size_t one_coordinate_len = (gen_buf_len - 1 ) / 2;
+        
+        // gxArra and gyArr are longer than what one coordinate needs, this is in big endian order, the more significant portion of gxArr and gyArr need to be left untouched
+
+        java_buffer gx_buf = java_buffer::from_array(env, gxArr);
+        java_buffer gy_buf = java_buffer::from_array(env, gyArr);
+
+        size_t gx_buf_len = gx_buf.len();
+        size_t gy_buf_len = gy_buf.len();
+
+        size_t gx_lead_zero_len = gx_buf_len - one_coordinate_len;
+        size_t gy_lead_zero_len = gy_buf_len - one_coordinate_len;
+
+        gx_buf.put_bytes(env, (gen_buf + 1), gx_lead_zero_len, one_coordinate_len);
+        gy_buf.put_bytes(env, (gen_buf + 1 + one_coordinate_len), gy_lead_zero_len, one_coordinate_len);
+
+        //env->SetByteArrayRegion(gxArr, 0, one_coordinate_len, (jbyte*)(gen_buf + 1));
+        //env->SetByteArrayRegion(gyArr, 0, one_coordinate_len, (jbyte*)(gen_buf + 1 + one_coordinate_len));
+
+        //gxBN.toJavaArray(env, gxArr);
+        //gyBN.toJavaArray(env, gyArr);
 
         pBN.toJavaArray(env, pArr);
         aBN.toJavaArray(env, aArr);
@@ -268,24 +320,6 @@ JNIEXPORT jobjectArray JNICALL Java_com_amazon_corretto_crypto_provider_EcUtils_
     try {
         raii_env env(pEnv);
 
-        std::vector<int> fips_curves_nids{
-            NID_secp224r1,
-            NID_secp384r1,
-            NID_secp521r1,
-            NID_X9_62_prime192v1,
-            NID_X9_62_prime256v1,
-            NID_sect163k1,
-            NID_sect163r2,
-            NID_sect233k1,
-            NID_sect233r1,
-            NID_sect283k1,
-            NID_sect283r1,
-            NID_sect409k1,
-            NID_sect409r1,
-            NID_sect571k1,
-            NID_sect571r1
-        };
-
         jobjectArray names = env->NewObjectArray(fips_curves_nids.size(), env->FindClass("java/lang/String"), nullptr);
         size_t i = 0;
         for (const int& nid : fips_curves_nids) {
@@ -321,6 +355,9 @@ JNIEXPORT jstring JNICALL Java_com_amazon_corretto_crypto_provider_EcUtils_getCu
         {
             jni_borrow curveNameDerBorrow = jni_borrow(env, java_buffer::from_array(env, encoded), "getCurveNameFromEncoded");
             der_oid_len = curveNameDerBorrow.len();
+            if (der_oid_len < 3)
+                throw_openssl("Unable to parse curve OID ASN.1");
+
             bin_oid_len = curveNameDerBorrow[1];
             memcpy(bin_oid, &curveNameDerBorrow[2], bin_oid_len);
         }
@@ -329,6 +366,8 @@ JNIEXPORT jstring JNICALL Java_com_amazon_corretto_crypto_provider_EcUtils_getCu
         ossl_auto<ASN1_OBJECT> dummy_obj = OBJ_txt2obj(dot_oid.c_str(), 1/*don't search registered objects*/);
 
         int nid = OBJ_obj2nid(dummy_obj);
+        if (nid == NID_undef)
+            throw_openssl("Unable to parse curve OID ASN.1");
 
         const char* sn = OBJ_nid2sn(nid);
 

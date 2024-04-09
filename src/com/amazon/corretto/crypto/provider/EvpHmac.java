@@ -288,7 +288,7 @@ class EvpHmac extends MacSpi implements Cloneable {
     public synchronized Service getService(final String type, final String algorithm) {
       if (type.equals("Mac") && algorithm.equals(macName)) {
         return new Service(
-            this, type, algorithm, spi.getName(), Collections.emptyList(), Collections.emptyMap()) {
+                this, type, algorithm, spi.getName(), Collections.emptyList(), Collections.emptyMap()) {
           @Override
           public Object newInstance(final Object constructorParameter) {
             try {
@@ -322,7 +322,7 @@ class EvpHmac extends MacSpi implements Cloneable {
     hashLocation.put("HmacSHA512", 2);
 
     try (final Scanner in =
-        new Scanner(Loader.getTestData("hmac.txt"), StandardCharsets.US_ASCII.name())) {
+                 new Scanner(Loader.getTestData("hmac.txt"), StandardCharsets.US_ASCII.name())) {
       final Mac testMac = Mac.getInstance(macName, p);
       while (in.hasNext()) {
         tests++;
@@ -332,7 +332,7 @@ class EvpHmac extends MacSpi implements Cloneable {
         String[] expecteds = in.nextLine().trim().split("\\s+");
         if (type.equals(hashCategory.get(macName))) {
           Utils.testMac(
-              testMac, key, message, Utils.decodeHex(expecteds[hashLocation.get(macName)]));
+                  testMac, key, message, Utils.decodeHex(expecteds[hashLocation.get(macName)]));
         }
       }
       return new SelfTestResult(SelfTestStatus.PASSED);

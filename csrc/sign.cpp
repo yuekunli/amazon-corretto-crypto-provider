@@ -346,15 +346,19 @@ JNIEXPORT jboolean JNICALL Java_com_amazon_corretto_crypto_provider_EvpSignature
             //    return false;
             //}
 
-            if (EC_R_BAD_SIGNATURE == errorCode || RSA_R_BAD_SIGNATURE == errorCode) {
+            // ec_err.c   {ERR_PACK(ERR_LIB_EC, 0, EC_R_BAD_SIGNATURE), "bad signature"},
+            // rsa_err.c      {ERR_PACK(ERR_LIB_RSA, 0, RSA_R_BAD_SIGNATURE), "bad signature"},
+
+            if (0x800009c == errorCode || 0x2000068 == errorCode) {
                 return false;
             }
 
-
-
             // JCA/JCA requires us to try to throw an exception on corrupted signatures, but only if it isn't an RSA
             // signature
-            if (errorCode != 0 && keyType != EVP_PKEY_RSA) {
+            // Tracked down the execution into FIPS module, signature is expected to be in DER encoded format.
+            // when DER decoding fails, it really really really doesn't raise any error code.
+            // Neither does it do so even it's because of some other reasons that it fails.
+            if (/*errorCode != 0 &&*/ keyType != EVP_PKEY_RSA) {
                 throw_java_ex(
                     EX_SIGNATURE_EXCEPTION, formatOpensslError(errorCode, "Unknown error verifying signature"));
             }
@@ -532,6 +536,8 @@ JNIEXPORT jboolean JNICALL Java_com_amazon_corretto_crypto_provider_EvpSignature
 
         if (likely(ret == 1)) {
             return true;
+        } else if (ret == 0) {
+            return false;  // signature doesn't verify
         } else {
             unsigned long errorCode = drainOpensslErrors();
 
@@ -545,13 +551,13 @@ JNIEXPORT jboolean JNICALL Java_com_amazon_corretto_crypto_provider_EvpSignature
             //}
 
 
-            if (EC_R_BAD_SIGNATURE == errorCode || RSA_R_BAD_SIGNATURE == errorCode) {
+            if (0x800009c == errorCode || 0x2000068 == errorCode) {
                 return false;
             }
 
             // JCA/JCA requires us to try to throw an exception on corrupted signatures, but only if it isn't an RSA
             // signature
-            if (errorCode != 0 && EVP_PKEY_base_id(ctx.getKey()) != EVP_PKEY_RSA) {
+            if (/*errorCode != 0 &&*/ EVP_PKEY_base_id(ctx.getKey()) != EVP_PKEY_RSA) {
                 throw_java_ex(
                     EX_SIGNATURE_EXCEPTION, formatOpensslError(errorCode, "Unknown error verifying signature"));
             }

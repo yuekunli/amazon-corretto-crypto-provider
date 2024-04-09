@@ -126,10 +126,12 @@ extern "C" JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_HkdfS
 
         *p = OSSL_PARAM_construct_end();
 
+        EVP_KDF_CTX_set_params(ctx, params);
+
         out_len = EVP_KDF_CTX_get_kdf_size(ctx);
         assert((int)out_len == outputLen);
 
-        EVP_KDF_derive(ctx, output.get(), outputLen, params);
+        EVP_KDF_derive(ctx, output.get(), outputLen, NULL);
 
     } catch (java_ex& ex) {
         ex.throw_to_java(env);
@@ -165,7 +167,7 @@ extern "C" JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_HkdfS
 
         *p++ = OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_KEY, prk.get(), prkLen);
 
-        *p++ = OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT, info.get(), infoLen);
+        *p++ = OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_INFO, info.get(), infoLen);
 
         *p = OSSL_PARAM_construct_end();
 

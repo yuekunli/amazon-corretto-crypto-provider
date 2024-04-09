@@ -86,7 +86,7 @@ JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_SHA256Spi_finish
 		unsigned int len;
 		int success = EVP_DigestFinal(ctx, digestBorrow.check_range(offset, SHA256_DIGEST_LENGTH), &len);
 
-		EVP_MD_CTX_free(ctx);
+		//EVP_MD_CTX_free(ctx);
 
 		if (unlikely(success != 1))
 		{

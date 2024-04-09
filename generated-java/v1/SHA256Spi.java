@@ -96,7 +96,7 @@ public final class SHA256Spi extends MessageDigestSpi implements Cloneable {
         */
 
         final byte[] result = new byte[HASH_SIZE];
-        fastDigest(result, src, offset, src.length);
+        fastDigest(result, src, offset, /*src.length*/ length);
         return result;
     }
 

@@ -23,8 +23,8 @@ void checkAgreementResult(int result)
     unsigned long errCode = drainOpensslErrors();
     std::string msg = formatOpensslError(errCode, "Unexpectected agreement error");
 
-    if (errCode == 0x05066065 // Invalid public key
-        || errCode == 0x06000068 // Different Parameters
+    if (errCode == 0x1c8000e2 // Invalid public key  //  ERR_PACK(ERR_LIB_PROV, 0, PROV_R_NOT_A_PUBLIC_KEY)
+        || errCode == 0x1c8000cb // mismatching domain Parameters  // ERR_PACK(ERR_LIB_PROV, 0, PROV_R_MISMATCHING_DOMAIN_PARAMETERS)
     ) {
         throw_java_ex(EX_INVALID_KEY, msg);
     } else {
@@ -69,7 +69,7 @@ extern "C" JNIEXPORT jbyteArray JNICALL Java_com_amazon_corretto_crypto_provider
         // This may throw, if it does we'll just keep the exception state as we return.
         env->SetByteArrayRegion(result, resultLen - returnedLen, returnedLen, (jbyte*)&tmpResult[0]);
 
-        EVP_PKEY_CTX_free(pctx);
+        //EVP_PKEY_CTX_free(pctx);
 
     } catch (java_ex& ex) {
         ex.throw_to_java(pEnv);

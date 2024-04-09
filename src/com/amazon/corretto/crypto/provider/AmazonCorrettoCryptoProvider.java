@@ -60,11 +60,11 @@ public final class AmazonCorrettoCryptoProvider extends java.security.Provider {
   }
 
   private void buildServiceMap() {
-    addService("MessageDigest", "SHA-512", "SHA512Spi");
-    addService("MessageDigest", "SHA-384", "SHA384Spi");
-    addService("MessageDigest", "SHA-256", "SHA256Spi");
-    addService("MessageDigest", "SHA-1", "SHA1Spi");
-    addService("MessageDigest", "MD5", "MD5Spi");
+    addService("MessageDigest", "SHA-512", "EvpMessageDigest$SHA512");
+    addService("MessageDigest", "SHA-384", "EvpMessageDigest$SHA384");
+    addService("MessageDigest", "SHA-256", "EvpMessageDigest$SHA256");
+    addService("MessageDigest", "SHA-1", "EvpMessageDigest$SHA1");
+    //addService("MessageDigest", "MD5", "EvpMessageDigest$MD5");
 
     addService("Cipher", "AES/GCM/NoPadding", "AesGcmSpi");
     addService("Cipher", "AES_128/GCM/NoPadding", "AesGcmSpi");
@@ -94,8 +94,8 @@ public final class AmazonCorrettoCryptoProvider extends java.security.Provider {
     addService("Cipher", "RSA/ECB/OAEPPadding", "RsaCipher$OAEP");
     addService("Cipher", "RSA/ECB/OAEPWithSHA-1AndMGF1Padding", "RsaCipher$OAEPSha1");
 
-    for (String hash : new String[] {"MD5", "SHA1", "SHA256", "SHA384", "SHA512"}) {
-      addService("Mac", "Hmac" + hash, "EvpHmac$" + hash);
+    for (String hash : new String[] {/*"MD5",*/ "SHA1", "SHA256", "SHA384", "SHA512"}) {
+      addService("Mac", "Hmac" + hash, "EvpHmacSinglePass$" + hash);
     }
 
     addService(
@@ -126,7 +126,7 @@ public final class AmazonCorrettoCryptoProvider extends java.security.Provider {
   private void addSignatures() {
     // Basic signature styles
     final List<String> bases = asList("RSA", "ECDSA");
-    final List<String> hashes = asList("SHA1", "SHA224", "SHA256", "SHA384", "SHA512");
+    final List<String> hashes = asList("SHA224", "SHA256", "SHA384", "SHA512");
 
     for (final String base : bases) {
       for (final String hash : hashes) {
@@ -422,10 +422,10 @@ public final class AmazonCorrettoCryptoProvider extends java.security.Provider {
     // the execution of tests when a test fails.
     selfTestSuite.addSelfTest(SelfTestSuite.AWS_LC_SELF_TESTS);
     selfTestSuite.addSelfTest(LibCryptoRng.SPI.SELF_TEST);
-    selfTestSuite.addSelfTest(EvpHmac.SHA512.SELF_TEST);
-    selfTestSuite.addSelfTest(EvpHmac.SHA384.SELF_TEST);
-    selfTestSuite.addSelfTest(EvpHmac.SHA256.SELF_TEST);
-    selfTestSuite.addSelfTest(EvpHmac.SHA1.SELF_TEST);
+    selfTestSuite.addSelfTest(EvpHmacSinglePass.SHA512.SELF_TEST);
+    selfTestSuite.addSelfTest(EvpHmacSinglePass.SHA384.SELF_TEST);
+    selfTestSuite.addSelfTest(EvpHmacSinglePass.SHA256.SELF_TEST);
+    selfTestSuite.addSelfTest(EvpHmacSinglePass.SHA1.SELF_TEST);
     //selfTestSuite.addSelfTest(EvpHmac.MD5.SELF_TEST);
 
     // Kick off self-tests in the background. It's vitally important that we don't actually _wait_

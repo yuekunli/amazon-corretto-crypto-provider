@@ -45,6 +45,7 @@ namespace {
     }
 }
 
+extern "C" {
 
 JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_test_NativeTestHooks_throwException(
     JNIEnv* pEnv, jclass)
@@ -138,4 +139,5 @@ JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_test_NativeTestH
     } catch (java_ex& ex) {
         ex.throw_to_java(pEnv);
     }
+}
 }

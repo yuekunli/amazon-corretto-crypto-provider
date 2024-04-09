@@ -33,6 +33,8 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_AesKeyWrapPaddin
         java_buffer input = java_buffer::from_array(env, inputArray, 0, inputLength);
         java_buffer output = java_buffer::from_array(env, outputArray, outputOffset);
 
+        int ret;
+
         SecureBuffer<uint8_t, AES_MAX_KEY_SIZE> keybuf;
         if (key.len() > sizeof(keybuf.buf)) {
             throw_openssl(EX_RUNTIME_CRYPTO, "AES key too large");
@@ -46,28 +48,36 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_AesKeyWrapPaddin
         switch (key.len())
         {
         case 16:
-            cipher = EVP_CIPHER_fetch(NULL/*lib context*/, "AES-128-WRAP", NULL/*prop queue*/);
+            cipher = EVP_CIPHER_fetch(NULL/*lib context*/, "AES-128-WRAP-PAD", NULL/*prop queue*/);
             break;
         case 24:
-            cipher = EVP_CIPHER_fetch(NULL/*lib context*/, "AES-192-WRAP", NULL/*prop queue*/);
+            cipher = EVP_CIPHER_fetch(NULL/*lib context*/, "AES-192-WRAP-PAD", NULL/*prop queue*/);
             break;
         case 32:
-            cipher = EVP_CIPHER_fetch(NULL/*lib context*/, "AES-256-WRAP", NULL/*prop queue*/);
+            cipher = EVP_CIPHER_fetch(NULL/*lib context*/, "AES-256-WRAP-PAD", NULL/*prop queue*/);
             break;
         default:
             throw_openssl(EX_RUNTIME_CRYPTO, "unrecognized AES key size");
         }
 
-        EVP_EncryptInit_ex2(ctx, cipher, (uint8_t*)keybuf, NULL, NULL/*params*/);  // can IV be null?
+        ret = EVP_EncryptInit_ex2(ctx, cipher, (uint8_t*)keybuf, NULL, NULL/*params*/);  // can IV be null?
+        if (ret <= 0)
+            throw_openssl(EX_RUNTIME_CRYPTO, "AES key init failed");
 
         jni_borrow inbuf(env, input, "input");
         jni_borrow outbuf(env, output, "output");
         int outlen;
         int tmplen;
 
-        EVP_EncryptUpdate(ctx, outbuf, &outlen, inbuf, input.len());
+        ret = EVP_EncryptUpdate(ctx, outbuf, &outlen, inbuf, input.len());
+        if (ret <= 0)
+            throw_openssl(EX_RUNTIME_CRYPTO, "Error wrapping key");
 
-        EVP_EncryptFinal_ex(ctx, outbuf + outlen, &tmplen);
+        ret = EVP_EncryptFinal_ex(ctx, outbuf + outlen, &tmplen);
+        if (ret <= 0)
+            throw_openssl(EX_RUNTIME_CRYPTO, "Error wrapping key");
+
+
         outlen += tmplen;
 
         return outlen;
@@ -96,6 +106,8 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_AesKeyWrapPaddin
         java_buffer input = java_buffer::from_array(env, inputArray, 0, inputLength);
         java_buffer output = java_buffer::from_array(env, outputArray, outputOffset);
 
+        int ret;
+
         //AES_KEY aes_key;
         SecureBuffer<uint8_t, AES_MAX_KEY_SIZE> keybuf;
         if (key.len() > sizeof(keybuf.buf)) {
@@ -110,27 +122,34 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_AesKeyWrapPaddin
         switch (key.len())
         {
         case 16:
-            cipher = EVP_CIPHER_fetch(NULL/*lib context*/, "AES-128-WRAP", NULL/*prop queue*/);
+            cipher = EVP_CIPHER_fetch(NULL/*lib context*/, "AES-128-WRAP-PAD", NULL/*prop queue*/);
             break;
         case 24:
-            cipher = EVP_CIPHER_fetch(NULL/*lib context*/, "AES-192-WRAP", NULL/*prop queue*/);
+            cipher = EVP_CIPHER_fetch(NULL/*lib context*/, "AES-192-WRAP-PAD", NULL/*prop queue*/);
             break;
         case 32:
-            cipher = EVP_CIPHER_fetch(NULL/*lib context*/, "AES-256-WRAP", NULL/*prop queue*/);
+            cipher = EVP_CIPHER_fetch(NULL/*lib context*/, "AES-256-WRAP-PAD", NULL/*prop queue*/);
             break;
         default:
             throw_openssl(EX_RUNTIME_CRYPTO, "unrecognized AES key size");
         }
 
-        EVP_DecryptInit_ex2(ctx, cipher, keybuf, NULL/*IV*/, NULL/*params*/);
+        ret = EVP_DecryptInit_ex2(ctx, cipher, keybuf, NULL/*IV*/, NULL/*params*/);
+        if (ret <= 0)
+            throw_openssl(EX_RUNTIME_CRYPTO, "AES key init failed");
 
         jni_borrow inbuf(env, input, "input");
         jni_borrow outbuf(env, output, "output");
         int outlen = 0, tmplen = 0;
+        
+        ret = EVP_DecryptUpdate(ctx, outbuf, &outlen, inbuf, input.len());
+        if (ret <=0)
+            throw_openssl(EX_RUNTIME_CRYPTO, "Error unwrapping key");
 
-        EVP_DecryptUpdate(ctx, outbuf, &outlen, inbuf, input.len());
+        ret = EVP_DecryptFinal_ex(ctx, outbuf + outlen, &tmplen);
+        if (ret <= 0)
+            throw_openssl(EX_RUNTIME_CRYPTO, "Error unwrapping key");
 
-        EVP_DecryptFinal_ex(ctx, outbuf + outlen, &tmplen);
         outlen += tmplen;
 
         return outlen;

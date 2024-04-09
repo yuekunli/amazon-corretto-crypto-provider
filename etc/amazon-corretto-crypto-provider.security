@@ -64,4 +64,5 @@ security.provider.21=SunPKCS11
 # This is a comma-separated list of algorithm and/or algorithm:provider
 # entries.
 #
-securerandom.strongAlgorithms=DEFAULT:AmazonCorrettoCryptoProvider,NativePRNGBlocking:SUN,DRBG:SUN
+#securerandom.strongAlgorithms=DEFAULT:AmazonCorrettoCryptoProvider,NativePRNGBlocking:SUN,DRBG:SUN
+securerandom.strongAlgorithms=DEFAULT:AmazonCorrettoCryptoProvider,Windows-PRNG:SunMSCAPI,SHA1PRNG:SUN

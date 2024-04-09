@@ -33,62 +33,92 @@ import java.util.function.Function;
 public class InputBuffer<R, S, X extends Throwable> implements Cloneable {
 
   @FunctionalInterface
-  public interface ArrayStateConsumer<INPUT_CONTEXT_TYPE> { // IProcessArrayData_WithInputContext_NoReturn
+  public interface ArrayStateConsumer<INPUT_CONTEXT_TYPE> { // I__StateAndArray_NoReturn   // ArrayStateConsumer
     void accept(INPUT_CONTEXT_TYPE state, byte[] src, int offset, int length);
   }
 
   @FunctionalInterface
-  public interface ArrayFunction<RETURN_TYPE, EXCEPTION extends Throwable> { // IProcessArrayData_NoInputContext_WithReturn
-    RETURN_TYPE apply(byte[] src, int offset, int length) throws EXCEPTION;
+  public interface ArrayFunction<RETURN_TYPE_STATE_OR_RESULT_A, EXCEPTION extends Throwable> { // I__Array_StateOrResult   // ArrayFunction
+    RETURN_TYPE_STATE_OR_RESULT_A apply(byte[] src, int offset, int length) throws EXCEPTION;
   }
 
-  public interface FinalHandlerFunction<STATE, RESULT, EXCEPTION extends Throwable> { // IFinalHandler_WithInputContext_WithReturn
+  public interface FinalHandlerFunction<STATE, RESULT, EXCEPTION extends Throwable> { // I__State_Result  // FinalHandlerFunction
     RESULT apply(STATE t) throws EXCEPTION;
   }
 
   @FunctionalInterface
-  public interface ByteBufferFunction<STATE> extends Function<ByteBuffer, STATE> { // IProcessBufferData_NoInputContext_WithReturn
+  public interface ByteBufferFunction <STATE> extends Function<ByteBuffer, STATE> { // I__ByteBuffer_State   // ByteBufferFunction
     STATE apply(ByteBuffer bb);
   }
 
   @FunctionalInterface
-  public interface ByteBufferBiConsumer<STATE> extends BiConsumer<STATE, ByteBuffer> {  // IProcessBufferData_WithInputContext_NoReturn
+  public interface ByteBufferBiConsumer<STATE> extends BiConsumer<STATE, ByteBuffer> {  // I__StateAndByteBuffer_NoReturn    // ByteBufferBiConsumer
     void accept(STATE state, ByteBuffer bb);
   }
 
   @FunctionalInterface
-  public interface StateSupplier<STATE> extends Function<STATE, STATE> { // IStateSupplier
+  public interface StateSupplier<STATE> extends Function<STATE, STATE> { // I__State_State  //  StateSupplier
     STATE apply(STATE state);
   }
 
   private final int buffSize;
-  private AccessibleByteArrayOutputStream buff;
+  private AccessibleByteArrayOutputStream buff;  // this is essentially an array
   private boolean firstData = true;
   private S state;
 
+
+  /**
+   *                    |  Input                |     Output
+   * -------------------|-----------------------|--------------------
+   * updater            |  state & data         |     none
+   * -------------------|-----------------------|--------------------
+   * initial updater    |  data                 |     state
+   * -------------------|-----------------------|--------------------
+   * final handler      |  state                |     result
+   * -------------------|-----------------------|--------------------
+   * single pass        |  data (in array)      |     result
+   */
+
+
   private ArrayStateConsumer<S> arrayUpdater;
-  private FinalHandlerFunction<S, R, X> finalHandler;
-  private StateSupplier<S> stateSupplier = (oldState) -> oldState;
-  private Optional<Function<S, S>> stateCloner = Optional.empty();
+
+
   // If absent, delegates to arrayUpdater
   private Optional<ByteBufferBiConsumer<S>> bufferUpdater = Optional.empty();
+
+
   // If absent, delegates to arrayUpdater
   private Optional<ArrayFunction<S, RuntimeException>> initialArrayUpdater = Optional.empty();
+
+
   // If absent, delegates to bufferUpdater or initialArrayUpdater
-  private Optional<ByteBufferFunction<S>> initialBufferUpdater = Optional.empty();
+  private Optional<ByteBufferFunction <S>> initialBufferUpdater = Optional.empty();
+
+
+
+  private FinalHandlerFunction<S, R, X> finalHandler;
+
+
+
   // If absent, delegates to firstArrayUpdater+finalHandler
   private Optional<ArrayFunction<R, X>> singlePassArray = Optional.empty();
+
+
+
+  private StateSupplier<S> stateSupplier = (oldState) -> oldState;
+  private Optional<Function<S, S>> stateCloner = Optional.empty();
+
 
   InputBuffer(final int capacity) {
     if (capacity <= 0) {
       throw new IllegalArgumentException("Capacity must be positive");
     }
-    buff = new AccessibleByteArrayOutputStream(0, capacity);
+    buff = new AccessibleByteArrayOutputStream(0, capacity); // "capacity" here is actually "limit" for AccessibleByteArrayOutputStream
     buffSize = capacity;
   }
 
   public void reset() {
-    buff.reset();
+    buff.reset();  // fill array with 0, reset "count" to 0, doesn't delete array
     firstData = true;
   }
 
@@ -106,7 +136,7 @@ public class InputBuffer<R, S, X extends Throwable> implements Cloneable {
     return this;
   }
 
-  public InputBuffer<R, S, X> withInitialUpdater(final ByteBufferFunction<S> handler) {
+  public InputBuffer<R, S, X> withInitialUpdater(final ByteBufferFunction <S> handler) {
     initialBufferUpdater = Optional.ofNullable(handler);
     return this;
   }
@@ -145,11 +175,11 @@ public class InputBuffer<R, S, X extends Throwable> implements Cloneable {
   private boolean fillBuffer(final byte[] arr, final int offset, final int length) {
     // Overflow safe comparison. Length might still be negative, but we'll catch
     // that later.
-    if (buffSize - buff.size() < length) {
+    if (buffSize - buff.size() < length) {  // buffSize is the "limit" of buff (AccessibleByteArrayOutputStream)
       return false;
     }
     try {
-      buff.write(arr, offset, length);
+      buff.write(arr, offset, length);  // if length is greater than buff's current length, "write" will take care of growing
     } catch (IndexOutOfBoundsException ex) {
       throw new ArrayIndexOutOfBoundsException(ex.toString());
     }
