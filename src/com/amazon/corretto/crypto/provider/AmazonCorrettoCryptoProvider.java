@@ -126,7 +126,7 @@ public final class AmazonCorrettoCryptoProvider extends java.security.Provider {
   private void addSignatures() {
     // Basic signature styles
     final List<String> bases = asList("RSA", "ECDSA");
-    final List<String> hashes = asList("SHA224", "SHA256", "SHA384", "SHA512");
+    final List<String> hashes = asList("SHA1", "SHA224", "SHA256", "SHA384", "SHA512");
 
     for (final String base : bases) {
       for (final String hash : hashes) {
