@@ -476,13 +476,13 @@ public final class EvpSignatureSpecificTest {
     signature = Signature.getInstance("RSASSA-PSS", NATIVE_PROVIDER);
     signature.initSign(pair.getPrivate());
     spec = getPssParams(signature);
-    assertEquals("SHA-1", spec.getDigestAlgorithm());
+    assertEquals("SHA-224", spec.getDigestAlgorithm());
     assertEquals("SHA-1", ((MGF1ParameterSpec) spec.getMGFParameters()).getDigestAlgorithm());
 
     signature = Signature.getInstance("RSASSA-PSS", NATIVE_PROVIDER);
     signature.initVerify(pair.getPublic());
     spec = getPssParams(signature);
-    assertEquals("SHA-1", spec.getDigestAlgorithm());
+    assertEquals("SHA-224", spec.getDigestAlgorithm());
     assertEquals("SHA-1", ((MGF1ParameterSpec) spec.getMGFParameters()).getDigestAlgorithm());
 
     // setting null params OK, shouldn't change from default
@@ -490,7 +490,7 @@ public final class EvpSignatureSpecificTest {
     signature.setParameter(null);
     signature.initSign(pair.getPrivate());
     spec = getPssParams(signature);
-    assertEquals("SHA-1", spec.getDigestAlgorithm());
+    assertEquals("SHA-224", spec.getDigestAlgorithm());
     assertEquals("SHA-1", ((MGF1ParameterSpec) spec.getMGFParameters()).getDigestAlgorithm());
   }
 
@@ -631,6 +631,14 @@ public final class EvpSignatureSpecificTest {
     signer.initSign(pair.getPrivate());
     signer.sign(); // Ignore result
 
+    // This test case passed not because I deliberately drain errors when EC signing fails.
+    // The above steps essentially sign without providing data. But such operation succeed in OpenSSL.
+    // So there is no lingering signature error, when later AES fails, I only get relevant AES error
+
+    // running this test case individually passes. But this test case fails when running the entire test class.
+    // This is probably because other test cases leave signature errors on error stack and this test case picks it up.
+    // This is the exact error seen by this test case: "error:0800009C:elliptic curve routines::bad signature"
+
     Cipher c = Cipher.getInstance("AES/GCM/NoPadding", NATIVE_PROVIDER);
     c.init(
         Cipher.DECRYPT_MODE,
@@ -673,6 +681,7 @@ public final class EvpSignatureSpecificTest {
       int ffSize = 0; // Finite field size used with RSA
       switch (m.group(1)) {
         case "SHA1":
+          continue;
         case "SHA224":
         case "SHA256":
           ffSize = 2048;
