@@ -3,30 +3,35 @@ package com.amazon.corretto.crypto.provider;
 import java.nio.ByteBuffer;
 import java.security.DigestException;
 import java.security.MessageDigestSpi;
+import java.util.Arrays;
 
-public final class SHA1Spi extends MessageDigestSpi implements Cloneable {
-    private static final int HASH_SIZE = 20;
-    private static final long[] CONTEXT;
+public final class SHA384Spi extends MessageDigestSpi implements Cloneable {
+    private static final int HASH_SIZE = 48;
+    //private static final long[] CONTEXT;
 
     private InputBuffer<byte[], long[], RuntimeException> buffer;
 
     static {
         Loader.checkNativeLibraryAvailability();
-        CONTEXT = new long[1];
-        initContext(CONTEXT);
+        //CONTEXT = new long[1];
+        //initContext(CONTEXT);
     }
 
-    public SHA1Spi()
+    public SHA384Spi()
     {
         Loader.checkNativeLibraryAvailability();
 
         this.buffer = new InputBuffer<byte[], long[], RuntimeException>(1024)
-                .withInitialStateSupplier(SHA1Spi::resetContext)
-                .withUpdater(SHA1Spi::synchronizedUpdateContextByteArray)
-                .withUpdater(SHA1Spi::synchronizedUpdateNativeByteBuffer)
-                .withDoFinal(SHA1Spi::doFinal)
-                .withSinglePass(SHA1Spi::singlePass)
-                .withStateCloner((context) -> context.clone());
+                .withInitialStateSupplier(SHA384Spi::spiResetContext)
+                .withUpdater(SHA384Spi::synchronizedUpdateContextByteArray)
+                .withUpdater(SHA384Spi::synchronizedUpdateNativeByteBuffer)
+                .withDoFinal(SHA384Spi::doFinal)
+                .withSinglePass(SHA384Spi::singlePass)
+                .withStateCloner((context) -> {
+                    long[] ctxDup = new long[1];
+                    cloneContext(context[0], ctxDup);
+                    return ctxDup;
+                });
     }
 
     static native void fastDigest(byte[] digest, byte[] buf, int offset, int bufLen);
@@ -63,15 +68,27 @@ public final class SHA1Spi extends MessageDigestSpi implements Cloneable {
         }
     }
 
-    private static long[] resetContext(long[] context)
+    private static native void cloneContext(long ctx, long[]ctxOut);
+    private static native void resetContext(long ctxPtr);
+    private static long spiCloneContext(long ctx)
+    {
+        long[] ctxDup = new long[1];
+        cloneContext(ctx, ctxDup);
+        return ctxDup[0];
+    }
+    private static long[] spiResetContext(long[] context)
     {
         if (context == null)
         {
-            context = CONTEXT.clone();
+            //context = CONTEXT.clone();
+            context = new long[1];
+            //context[0] = spiCloneContext(CONTEXT[0]);
+            initContext(context);
         }
         else
         {
-            context[0] = CONTEXT[0];
+            //context[0] = CONTEXT[0];
+            resetContext(context[0]);
         }
         return context;
     }
@@ -85,7 +102,7 @@ public final class SHA1Spi extends MessageDigestSpi implements Cloneable {
 
     private static byte[] singlePass(byte[] src, int offset, int length)
     {
-        /*
+
         if (offset != 0 || length != src.length)
         {
             src = Arrays.copyOf(src, length);  // if offset is not 0, why do I copy from src[0]?
@@ -93,7 +110,7 @@ public final class SHA1Spi extends MessageDigestSpi implements Cloneable {
             // offset and length, have JNI take the appropriate range out of it
             offset = 0;
         }
-        */
+
 
         final byte[] result = new byte[HASH_SIZE];
         fastDigest(result, src, offset, src.length);
@@ -129,7 +146,7 @@ public final class SHA1Spi extends MessageDigestSpi implements Cloneable {
     {
         try
         {
-            SHA1Spi clonedObject = (SHA1Spi) super.clone();
+            SHA384Spi clonedObject = (SHA384Spi) super.clone();
             clonedObject.buffer = buffer.clone();
             return clonedObject;
         }

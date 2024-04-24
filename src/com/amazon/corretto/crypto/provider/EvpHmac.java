@@ -24,7 +24,6 @@ class EvpHmac extends MacSpi implements Cloneable {
 
   private static final int NEED_COMPLETE_REINITIALIZE = 0;
   private static final int RESET_INPUT_KEEP_KEY_AND_MD = 1;
-
   private static final int CONTINUOUS_UPDATE = 2;
 
   /* Returns the size of the array needed to hold the entire HMAC context. */
@@ -116,6 +115,10 @@ class EvpHmac extends MacSpi implements Cloneable {
     }
   }
 
+  private static native void cloneContext(long ctx, long[] ctxOut);
+
+  private static native void resetContext(long ctx);
+
   // These must be explicitly cloned
   private HmacState state;
   private InputBuffer<byte[], Void, RuntimeException> buffer;
@@ -188,7 +191,7 @@ class EvpHmac extends MacSpi implements Cloneable {
       throw new InvalidKeyException("Hmac uses expects a SecretKey");
     }
     state.setKey((SecretKey) key);
-    engineReset();
+    //engineReset();
   }
 
   @Override
@@ -209,6 +212,7 @@ class EvpHmac extends MacSpi implements Cloneable {
   @Override
   protected void engineReset() {
     buffer.reset();
+    resetContext(state.ctx[0]);
   }
 
   private void assertKeyProvided() {
@@ -261,7 +265,10 @@ class EvpHmac extends MacSpi implements Cloneable {
     public HmacState clone() {
       try {
         HmacState cl = (HmacState) super.clone();
-        cl.ctx = ctx.clone();  // Do I need this? encoded_key is an array, but it's not separately cloned.
+        cl.ctx = new long[1];
+        if (ctx[0] != 0) {
+          cloneContext(ctx[0], cl.ctx);
+        }
         return cl;
       } catch (final CloneNotSupportedException ex) {
         throw new AssertionError(ex);

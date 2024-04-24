@@ -60,11 +60,11 @@ public final class AmazonCorrettoCryptoProvider extends java.security.Provider {
   }
 
   private void buildServiceMap() {
-    addService("MessageDigest", "SHA-512", "EvpMessageDigest$SHA512");
-    addService("MessageDigest", "SHA-384", "EvpMessageDigest$SHA384");
-    addService("MessageDigest", "SHA-256", "EvpMessageDigest$SHA256");
-    addService("MessageDigest", "SHA-1", "EvpMessageDigest$SHA1");
-    //addService("MessageDigest", "MD5", "EvpMessageDigest$MD5");
+    addService("MessageDigest", "SHA-512", "SHA512Spi"/*"EvpMessageDigestIncremental$SHA512"*/);
+    addService("MessageDigest", "SHA-384", "SHA384Spi"/*"EvpMessageDigestIncremental$SHA384"*/);
+    addService("MessageDigest", "SHA-256", "SHA256Spi"/*"EvpMessageDigestIncremental$SHA256"*/);
+    addService("MessageDigest", "SHA-1", "SHA1Spi"/*"EvpMessageDigestIncremental$SHA1"*/);
+    //addService("MessageDigest", "MD5", "EvpMessageDigestIncremental$MD5");
 
     addService("Cipher", "AES/GCM/NoPadding", "AesGcmSpi");
     addService("Cipher", "AES_128/GCM/NoPadding", "AesGcmSpi");
@@ -95,7 +95,7 @@ public final class AmazonCorrettoCryptoProvider extends java.security.Provider {
     addService("Cipher", "RSA/ECB/OAEPWithSHA-1AndMGF1Padding", "RsaCipher$OAEPSha1");
 
     for (String hash : new String[] {/*"MD5",*/ "SHA1", "SHA256", "SHA384", "SHA512"}) {
-      addService("Mac", "Hmac" + hash, "EvpHmacSinglePass$" + hash);
+      addService("Mac", "Hmac" + hash, "EvpHmac$" + hash);
     }
 
     addService(

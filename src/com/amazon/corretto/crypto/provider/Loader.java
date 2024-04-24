@@ -268,7 +268,8 @@ final class Loader {
     Exception loadingException = null;
 
     try {
-      tryLoadLibraryFromFixedPath();
+      //tryLoadLibraryFromFixedPath();
+      tryLoadLibraryFromSystem();
       successfullyLoadedLibrary = true;
     } catch (Exception e) {
       loadingException = e;

@@ -85,6 +85,8 @@ void calculate_mac(raii_env& env, EVP_MAC_CTX* ctx, java_buffer& result)
     }
 
     result.put_bytes(env, scratch, 0, macSize);
+
+    EVP_MAC_init(ctx, NULL, 0, NULL);
 }
 }
 
@@ -165,6 +167,34 @@ JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpHmac_doFinal(
 
         calculate_mac(env, ctx, resultBuf);
     } catch (java_ex& ex) {
+        ex.throw_to_java(pEnv);
+    }
+}
+
+JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpHmac_resetContext(
+    JNIEnv* pEnv, jclass, jlong ctxPtr)
+{
+    try {
+        raii_env env(pEnv);
+        EVP_MAC_CTX* ctx = reinterpret_cast<EVP_MAC_CTX*>(ctxPtr);
+        EVP_MAC_init(ctx, NULL, 0, NULL);
+    }
+    catch (java_ex& ex) {
+        ex.throw_to_java(pEnv);
+    }
+}
+
+JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpHmac_cloneContext(
+    JNIEnv* pEnv, jclass, jlong ctxPtr, jlongArray ctxOut)
+{
+    try {
+        raii_env env(pEnv);
+        EVP_MAC_CTX* ctx = reinterpret_cast<EVP_MAC_CTX*>(ctxPtr);
+        EVP_MAC_CTX* ctxDup = EVP_MAC_CTX_dup(ctx);
+        jlong tmpPtr = reinterpret_cast<jlong>(ctxDup);
+        env->SetLongArrayRegion(ctxOut, 0 /* start position */, 1 /* number of elements */, &tmpPtr);
+    }
+    catch (java_ex& ex) {
         ex.throw_to_java(pEnv);
     }
 }

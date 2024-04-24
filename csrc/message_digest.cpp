@@ -28,7 +28,162 @@ using namespace AmazonCorrettoCryptoProvider;
 extern "C" {
 #endif
 
-	JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpMessageDigest_singlePassDigest(
+	JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpMessageDigestIncremental_initContext(
+		JNIEnv* pEnv,
+		jclass,
+		jint digestType,
+		jlongArray ctxOut)
+	{
+		try
+		{
+			raii_env env(pEnv);
+			ossl_auto<EVP_MD_CTX> ctx;
+			ossl_auto<EVP_MD> md;
+			switch (digestType)
+			{
+			case DIGESTTYPE::_MD5:
+				md = EVP_MD_fetch(NULL/*lib context*/, OSSL_DIGEST_NAME_MD5, NULL/*prop queue*/);
+				break;
+			case DIGESTTYPE::_SHA1:
+				md = EVP_MD_fetch(NULL/*lib context*/, OSSL_DIGEST_NAME_SHA1, NULL/*prop queue*/);
+				break;
+			case DIGESTTYPE::_SHA256:
+				md = EVP_MD_fetch(NULL/*lib context*/, OSSL_DIGEST_NAME_SHA2_256, NULL/*prop queue*/);
+				break;
+			case DIGESTTYPE::_SHA384:
+				md = EVP_MD_fetch(NULL/*lib context*/, OSSL_DIGEST_NAME_SHA2_384, NULL/*prop queue*/);
+				break;
+			case DIGESTTYPE::_SHA512:
+				md = EVP_MD_fetch(NULL/*lib context*/, OSSL_DIGEST_NAME_SHA2_512, NULL/*prop queue*/);
+				break;
+			}
+
+			ctx = EVP_MD_CTX_new();
+			EVP_DigestInit(ctx, md);
+			jlong tmpPtr = reinterpret_cast<jlong>(ctx.take());
+			env->SetLongArrayRegion(ctxOut, 0, 1, &tmpPtr);
+		}
+		catch (java_ex& ex)
+		{
+			ex.throw_to_java(pEnv);
+		}
+	}
+
+	JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpMessageDigestIncremental_cloneContext(
+		JNIEnv* pEnv,
+		jclass,
+		jlong ctxPtr,
+		jlongArray ctxOut)
+	{
+		try {
+			raii_env env(pEnv);
+
+			EVP_MD_CTX* ctx = reinterpret_cast<EVP_MD_CTX*>(ctxPtr);
+
+			EVP_MD_CTX* ctxDup = EVP_MD_CTX_new();
+
+			int ret = EVP_MD_CTX_copy(ctxDup, ctx);
+			if (ret == 1)
+			{
+				jlong tmpPtr = reinterpret_cast<jlong>(ctxDup);
+				env->SetLongArrayRegion(ctxOut, 0, 1, &tmpPtr);
+			}
+			else
+			{
+				EVP_MD_CTX_free(ctxDup);
+				throw_openssl();
+			}
+		}
+		catch (java_ex& ex) {
+			ex.throw_to_java(pEnv);
+		}
+	}
+
+	JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpMessageDigestIncremental_updateInputArray(
+		JNIEnv* pEnv,
+		jclass,
+		jlong ctxPtr,
+		jbyteArray dataArray,
+		jint offset,
+		jint length)
+	{
+		try {
+			raii_env env(pEnv);
+			EVP_MD_CTX* ctx = reinterpret_cast<EVP_MD_CTX*>(ctxPtr);
+			java_buffer databuf = java_buffer::from_array(env, dataArray, offset, length);
+			jni_borrow dataBorrow(env, databuf, "databuf");
+
+			EVP_DigestUpdate(ctx, dataBorrow.data(), dataBorrow.len());
+		}
+		catch (java_ex& ex) {
+			ex.throw_to_java(pEnv);
+		}
+	}
+
+	JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpMessageDigestIncremental_updateInputBuffer(
+		JNIEnv* pEnv,
+		jclass,
+		jlong ctxPtr,
+		jobject dataDirectBuf)
+	{
+		try {
+			raii_env env(pEnv);
+			EVP_MD_CTX* ctx = reinterpret_cast<EVP_MD_CTX*>(ctxPtr);
+
+			java_buffer dataBuf = java_buffer::from_direct(env, dataDirectBuf);
+			jni_borrow dataBorrow(env, dataBuf, "dataBorrow");
+
+			EVP_DigestUpdate(ctx, dataBorrow.data(), dataBorrow.len());
+		}
+		catch (java_ex& ex) {
+			ex.throw_to_java(pEnv);
+		}
+	}
+
+	JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpMessageDigestIncremental_finish(
+		JNIEnv* pEnv,
+		jclass,
+		jlong ctxPtr,
+		jbyteArray digestArray,
+		jint offset)
+	{
+		try {
+			raii_env env(pEnv);
+			EVP_MD_CTX* ctx = reinterpret_cast<EVP_MD_CTX*>(ctxPtr);
+			java_buffer digestbuf = java_buffer::from_array(env, digestArray);
+			jni_borrow digestBorrow(env, digestbuf, "digestbuf");
+			int expected_size = EVP_MD_CTX_get_size(ctx);
+			unsigned int len;
+			int ret = EVP_DigestFinal(ctx, digestBorrow.check_range(offset, expected_size), &len);
+			EVP_MD_CTX_free(ctx);
+			if (unlikely(ret != 1))
+			{
+				digestBorrow.zeroize();
+				throw_openssl();
+			}
+		}
+		catch (java_ex& ex)
+		{
+			ex.throw_to_java(pEnv);
+		}
+	}
+
+	JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpMessageDigestIncremental_reset(
+		JNIEnv* pEnv,
+		jclass,
+		jlong ctxPtr)
+	{
+		try {
+			raii_env env(pEnv);
+			EVP_MD_CTX* ctx = reinterpret_cast<EVP_MD_CTX*>(ctxPtr);
+			EVP_MD_CTX_reset(ctx);
+		}
+		catch (java_ex& ex) {
+			ex.throw_to_java(pEnv);
+		}
+	}
+
+	JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_EvpMessageDigestIncremental_singlePassDigest(
 		JNIEnv* pEnv,
 		jclass,
 		jint digestType,

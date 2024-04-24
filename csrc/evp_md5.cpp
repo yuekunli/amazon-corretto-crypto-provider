@@ -85,14 +85,13 @@ JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_MD5Spi_finish(
 
 		unsigned int len;
 		int success = EVP_DigestFinal(ctx, digestBorrow.check_range(offset, MD5_DIGEST_LENGTH), &len);
-
-		EVP_MD_CTX_free(ctx);
-
 		if (unlikely(success != 1))
 		{
 			digestBorrow.zeroize();
 			throw_openssl();
 		}
+		EVP_MD* md = EVP_MD_fetch(NULL/*lib ctx*/, OSSL_DIGEST_NAME_MD5, NULL/*prop queue*/);
+		EVP_DigestInit(ctx, md);
 	}
 	catch (java_ex& ex)
 	{
@@ -123,6 +122,52 @@ JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_MD5Spi_updateNat
 	}
 }
 
+JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_MD5Spi_resetContext(
+	JNIEnv* pEnv,
+	jclass,
+	jlong ctxPtr)
+{
+	try {
+		raii_env env(pEnv);
+		EVP_MD_CTX* ctx = reinterpret_cast<EVP_MD_CTX*>(ctxPtr);
+		EVP_MD_CTX_reset(ctx);
+		EVP_MD* md = EVP_MD_fetch(NULL/*lib ctx*/, OSSL_DIGEST_NAME_MD5, NULL/*prop queue*/);
+		EVP_DigestInit(ctx, md);
+	}
+	catch (java_ex& ex) {
+		ex.throw_to_java(pEnv);
+	}
+}
+
+JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_MD5Spi_cloneContext(
+	JNIEnv* pEnv,
+	jclass,
+	jlong ctxPtr,
+	jlongArray ctxOut)
+{
+	try {
+		raii_env env(pEnv);
+
+		EVP_MD_CTX* ctx = reinterpret_cast<EVP_MD_CTX*>(ctxPtr);
+
+		EVP_MD_CTX* ctxDup = EVP_MD_CTX_new();
+
+		int ret = EVP_MD_CTX_copy(ctxDup, ctx);
+		if (ret == 1)
+		{
+			jlong tmpPtr = reinterpret_cast<jlong>(ctxDup);
+			env->SetLongArrayRegion(ctxOut, 0, 1, &tmpPtr);
+		}
+		else
+		{
+			EVP_MD_CTX_free(ctxDup);
+			throw_openssl();
+		}
+	}
+	catch (java_ex& ex) {
+		ex.throw_to_java(pEnv);
+	}
+}
 JNIEXPORT void JNICALL Java_com_amazon_corretto_crypto_provider_MD5Spi_fastDigest(
 	JNIEnv* pEnv,
 	jclass,
