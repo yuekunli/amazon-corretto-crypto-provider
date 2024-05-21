@@ -32,10 +32,7 @@ import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManagerFactory;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
@@ -166,6 +163,14 @@ public class LocalHTTPSIntegrationTest {
   public void cleanup() throws Exception {
     resetProviders();
   }
+
+  @Test
+  public void test2() throws Exception {
+    // Use this one combination of input, set breakpoints on as many functions as possible in AmazonCorrettoCryptoProvider code
+    // See what functions are invoked when I instantiate an HTTPS client and initiate a connection.
+    test(true, false, "TLS_DHE_RSA_WITH_AES_256_GCM_SHA384", "SHA256withRSA", 2048);
+  }
+
 
   @ParameterizedTest(
       name = "ServerACCPEnabled({0}) BCEnabled({1}) Suite({2}) SignatureType({3}) KeyBits({4})")
